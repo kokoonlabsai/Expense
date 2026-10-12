@@ -1,0 +1,15 @@
+{
+  "name": "tally",
+  "private": true,
+  "description": "Tally — a premium personal expense tracker with phone-automation API and group splits",
+  "scripts": {
+    "postinstall": "npm --prefix server install && npm --prefix client install",
+    "build": "npm --prefix client run build",
+    "start": "NODE_ENV=production node server/src/index.js",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "test": "npm --prefix server test",
+    "seed:demo": "npm --prefix server run seed:demo"
+  },
+  "engines": { "node": ">=20" }
+}
