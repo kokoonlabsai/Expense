@@ -176,4 +176,22 @@ test('end-to-end: auth, automation API, filters, groups', async () => {
   r = await call('POST', '/api/auth/signup', { body: { name: 'Eve', phone: '9000000099', password: 'secret3' } });
   r = await call('GET', `/api/groups/${gid}`, { token: r.body.token });
   assert.equal(r.status, 404);
+
+  // Deleting a group removes its expenses and my linked split transaction
+  r = await call('DELETE', `/api/groups/${gid}`, { token: token2 });
+  assert.equal(r.status, 403);
+  r = await call('DELETE', `/api/groups/${gid}`, { token });
+  assert.equal(r.status, 204);
+  r = await call('GET', '/api/transactions?source=split', { token });
+  assert.equal(r.body.items.length, 0);
+  r = await call('GET', '/api/groups', { token: token2 });
+  assert.equal(r.body.groups.length, 0);
+
+  // Deleting an account removes its data and its API keys stop working
+  r = await call('DELETE', '/api/auth/me', { token });
+  assert.equal(r.status, 204);
+  r = await call('GET', '/api/v1/ping', { token: key });
+  assert.equal(r.status, 401);
+  r = await call('POST', '/api/auth/login', { body: { phone: '+919876543210', password: 'secret1' } });
+  assert.equal(r.status, 401);
 });

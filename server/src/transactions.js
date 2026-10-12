@@ -23,8 +23,13 @@ function slugify(s) {
 }
 
 /** Resolve free text to one of the user's category slugs. Returns { slug, matched }. */
-function resolveCategory(userId, input) {
-  const cats = db.prepare('SELECT slug, name FROM categories WHERE user_id = ?').all(userId);
+function loadCategories(userId, q = db) {
+  return q.all('SELECT slug, name FROM categories WHERE user_id = ?', userId);
+}
+
+/** Pass `cats` (from loadCategories) to avoid a query per call when resolving many. */
+async function resolveCategory(userId, input, cats) {
+  cats ||= await loadCategories(userId);
   if (input === undefined || input === null || String(input).trim() === '') return { slug: 'other', matched: false };
   const raw = String(input).toLowerCase().trim();
   const slug = slugify(raw);
@@ -43,7 +48,7 @@ function resolveCategory(userId, input) {
  * Validate a transaction payload. With partial=true only provided fields are validated
  * (used for PATCH). Returns { data, warnings }.
  */
-function normalizeTransaction(userId, body, { partial = false } = {}) {
+async function normalizeTransaction(userId, body, { partial = false, cats } = {}) {
   const errors = {};
   const warnings = [];
   const data = {};
@@ -68,7 +73,7 @@ function normalizeTransaction(userId, body, { partial = false } = {}) {
   }
 
   if (!partial || has('category')) {
-    const { slug, matched } = resolveCategory(userId, body.category);
+    const { slug, matched } = await resolveCategory(userId, body.category, cats);
     if (!matched && body.category) warnings.push(`Unknown category "${body.category}" — filed under "other".`);
     data.category = slug;
   }
@@ -93,22 +98,16 @@ function normalizeTransaction(userId, body, { partial = false } = {}) {
   return { data, warnings };
 }
 
-function insertTransaction(userId, data, source = 'manual') {
-  const info = db
-    .prepare(
-      `INSERT INTO transactions (user_id, name, amount, type, category, date, note, counterparty, settled, source, group_expense_id)
-       VALUES (@user_id, @name, @amount, @type, @category, @date, @note, @counterparty, @settled, @source, @group_expense_id)`
-    )
-    .run({
-      user_id: userId,
-      note: null,
-      counterparty: null,
-      settled: 0,
-      group_expense_id: null,
-      ...data,
-      source,
-    });
-  return db.prepare('SELECT * FROM transactions WHERE id = ?').get(info.lastInsertRowid);
+const TX_FIELDS = ['name', 'amount', 'type', 'category', 'date', 'note', 'counterparty', 'settled', 'group_expense_id'];
+
+/** Insert a validated transaction. Pass a transaction handle as `q` to run inside db.tx(). */
+async function insertTransaction(userId, data, source = 'manual', q = db) {
+  const row = { type: 'expense', note: null, counterparty: null, settled: 0, group_expense_id: null, ...data };
+  const { lastInsertRowid } = await q.run(
+    `INSERT INTO transactions (user_id, source, ${TX_FIELDS.join(', ')}) VALUES (?, ?, ${TX_FIELDS.map(() => '?').join(', ')})`,
+    userId, source, ...TX_FIELDS.map((f) => row[f])
+  );
+  return q.get('SELECT * FROM transactions WHERE id = ?', lastInsertRowid);
 }
 
 /** Build a WHERE clause from query-string filters shared by list, export and totals. */
@@ -162,4 +161,4 @@ const SORTS = {
   amount_asc: 'amount ASC, id ASC',
 };
 
-module.exports = { normalizeTransaction, insertTransaction, resolveCategory, buildFilters, SORTS, slugify };
+module.exports = { loadCategories, normalizeTransaction, insertTransaction, resolveCategory, buildFilters, SORTS, slugify };

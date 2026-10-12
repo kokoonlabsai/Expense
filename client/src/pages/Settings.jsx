@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Copy, KeyRound, Plus, Smartphone, Trash2, Apple, Bot, Terminal } from 'lucide-react';
-import { api } from '../lib/api';
+import { api, API_ORIGIN } from '../lib/api';
 import { useApp } from '../lib/store';
 import { CURRENCIES, dayLabel } from '../lib/format';
 import { Field, Modal } from '../components/ui';
@@ -61,7 +61,7 @@ export default function Settings() {
     navigate('/signup');
   }
 
-  const origin = window.location.origin;
+  const origin = API_ORIGIN || window.location.origin;
   const keyText = lastKey || 'tly_YOUR_API_KEY';
   const catList = categories.map((c) => c.slug).join(', ');
   const curl = `curl -X POST ${origin}/api/v1/transactions \\

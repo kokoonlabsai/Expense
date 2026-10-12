@@ -23,25 +23,58 @@
 - **Budgets and categories**: set an overall monthly budget and per-category budgets. Add custom categories with your own colour and icon.
 - **Settings**: change your currency (INR, USD, EUR, GBP, AED, SGD, AUD, CAD, JPY) or password, manage API keys, and delete your account.
 
-## Run it
+## Run it locally
 
 ```bash
 npm install            # installs server + client
 npm run build          # builds the web app
-JWT_SECRET=change-me npm start   # http://localhost:4000
+JWT_SECRET=change-me npm start   # http://localhost:4000  (serves the app + API, data in a local SQLite file)
 ```
 
 To load demo data, run `npm run seed:demo`, then log in with phone **+91 00000 00000** and password **demo1234**.
 
 For development, run `npm run dev:server` (API on :4000) and `npm run dev:client` (Vite on :5173, which proxies `/api`). Run the API tests with `npm test`.
 
-With Docker: `docker build -t tally . && docker run -p 4000:4000 -e JWT_SECRET=... -v tally-data:/data tally`
+## Hosting (cheap setup)
+
+| Piece | Where | Cost |
+|---|---|---|
+| Database | [Turso](https://turso.tech), hosted SQLite | Free tier |
+| Backend (`server/`, Dockerfile included) | DigitalOcean App Platform | ~$5/month |
+| Frontend (`client/`) | DigitalOcean static site **or** Vercel | Free |
+
+The backend keeps no files of its own; all data lives in Turso. That means it can run on any container host and survive redeploys.
+
+### 1. Database: Turso
+1. Sign up at turso.tech and create a database (pick the region closest to your backend).
+2. Copy the **database URL** (`libsql://….turso.io`) and create an **auth token**.
+
+The tables are created automatically on first start.
+
+### 2a. Backend + frontend on DigitalOcean (recommended: one domain)
+`.do/app.yaml` defines a free static site for the frontend and a ~$5 container for the API, served on the same domain (`/api` goes to the backend). You don't need any cross-site settings.
+
+1. Merge this code into `main`, or edit `branch:` in `.do/app.yaml`.
+2. In DigitalOcean go to **Apps → Create App → GitHub** and pick this repo. It detects `.do/app.yaml`. Or run `doctl apps create --spec .do/app.yaml`.
+3. Under the **api** component's environment variables, set `JWT_SECRET`, `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`.
+4. Deploy. Your automation endpoint is `https://<your-app>.ondigitalocean.app/api/v1/transactions`.
+
+### 2b. Frontend on Vercel instead
+1. Deploy only the backend on DigitalOcean (delete the `static_sites` and `ingress` blocks from `.do/app.yaml`). Set `CORS_ORIGIN=https://your-app.vercel.app` on it.
+2. In Vercel, import the repo and set **Root Directory** to `client`. Add the environment variable `VITE_API_URL=https://<your-backend>.ondigitalocean.app`. `client/vercel.json` already handles page routing.
+
+### Backend environment variables
 
 | Env var | Default | |
 |---|---|---|
-| `PORT` | `4000` | |
-| `JWT_SECRET` | dev value | **Set this in production** |
-| `DB_PATH` | `server/data/tally.db` | SQLite file |
+| `JWT_SECRET` | dev value | **Required in production.** Keep it stable or everyone is logged out |
+| `TURSO_DATABASE_URL` | — | Turso database URL. If unset, a local SQLite file is used |
+| `TURSO_AUTH_TOKEN` | — | Turso auth token |
+| `CORS_ORIGIN` | allow all | Comma-separated frontend URLs (only needed when the frontend is on another domain) |
+| `PORT` | `4000` (`8080` in Docker) | |
+| `DB_PATH` | `server/data/tally.db` | Local SQLite file when not using Turso |
+
+To load the demo account into Turso, run `TURSO_DATABASE_URL=… TURSO_AUTH_TOKEN=… npm run seed:demo`.
 
 ## Automation API
 
@@ -83,7 +116,7 @@ Send an HTTP POST to the same URL with the same header and a JSON body. Trigger 
 
 ## Stack
 
-- Node, Express 5 and SQLite (better-sqlite3)
+- Node, Express 5 and SQLite via libSQL (Turso in production, a local file in development)
 - bcrypt passwords, JWT sessions, and API keys stored as SHA-256 hashes
 - React 19, Vite, React Router, Recharts and Lucide icons
 - Instrument Serif and Plus Jakarta Sans fonts

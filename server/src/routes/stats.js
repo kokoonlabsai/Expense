@@ -21,45 +21,70 @@ function formatter(currency) {
   return (n) => nf.format(n);
 }
 
-router.get('/summary', (req, res) => {
+router.get('/summary', async (req, res) => {
   const uid = req.user.id;
   const fmt = formatter(req.user.currency);
   const t = today();
   const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : t.slice(0, 7);
   const prev = shiftMonth(month, -1);
+  const months = [];
+  for (let i = 5; i >= 0; i--) months.push(shiftMonth(month, -i));
 
-  const monthTotals = db.prepare(
-    `SELECT COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS spent,
+  const MONTH_TOTALS = `SELECT COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS spent,
             COALESCE(SUM(CASE WHEN type='income' THEN amount END),0) AS income,
             COUNT(CASE WHEN type='expense' THEN 1 END) AS count
-     FROM transactions WHERE user_id = ? AND substr(date,1,7) = ?`
-  );
-  const cur = monthTotals.get(uid, month);
-  const last = monthTotals.get(uid, prev);
-
-  const byCategoryStmt = db.prepare(
-    `SELECT t.category AS slug, c.name, c.color, c.icon, c.budget, SUM(t.amount) AS total, COUNT(*) AS count
+     FROM transactions WHERE user_id = ? AND substr(date,1,7) = ?`;
+  const BY_CATEGORY = `SELECT t.category AS slug, c.name, c.color, c.icon, c.budget, SUM(t.amount) AS total, COUNT(*) AS count
      FROM transactions t LEFT JOIN categories c ON c.user_id = t.user_id AND c.slug = t.category
      WHERE t.user_id = ? AND t.type='expense' AND substr(t.date,1,7) = ?
-     GROUP BY t.category ORDER BY total DESC`
-  );
-  const byCategory = byCategoryStmt.all(uid, month);
-  const prevByCat = Object.fromEntries(byCategoryStmt.all(uid, prev).map((r) => [r.slug, r.total]));
+     GROUP BY t.category ORDER BY total DESC`;
 
-  // Daily series with cumulative line for the month
-  const dailyRows = db
-    .prepare(
-      `SELECT date, SUM(amount) AS total FROM transactions
-       WHERE user_id = ? AND type='expense' AND substr(date,1,7) = ? GROUP BY date`
-    )
-    .all(uid, month);
+  // Independent queries run in parallel — matters when the database is remote (Turso).
+  const [cur, last, byCategory, prevCats, dailyRows, prevDaily, trendRows, topMerchants, recent, lending, lendingItems, groups] =
+    await Promise.all([
+      db.get(MONTH_TOTALS, uid, month),
+      db.get(MONTH_TOTALS, uid, prev),
+      db.all(BY_CATEGORY, uid, month),
+      db.all(BY_CATEGORY, uid, prev),
+      db.all(
+        `SELECT date, SUM(amount) AS total FROM transactions
+         WHERE user_id = ? AND type='expense' AND substr(date,1,7) = ? GROUP BY date`,
+        uid, month
+      ),
+      db.all(
+        `SELECT CAST(substr(date,9,2) AS INTEGER) AS day, SUM(amount) AS total FROM transactions
+         WHERE user_id = ? AND type='expense' AND substr(date,1,7) = ? GROUP BY day`,
+        uid, prev
+      ),
+      db.all(
+        `SELECT substr(date,1,7) AS month,
+                SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS spent,
+                SUM(CASE WHEN type='income' THEN amount ELSE 0 END) AS income
+         FROM transactions WHERE user_id = ? AND substr(date,1,7) BETWEEN ? AND ? GROUP BY month`,
+        uid, months[0], months[5]
+      ),
+      db.all(
+        `SELECT name, SUM(amount) AS total, COUNT(*) AS count FROM transactions
+         WHERE user_id = ? AND type='expense' AND substr(date,1,7) = ?
+         GROUP BY lower(name) ORDER BY total DESC LIMIT 5`,
+        uid, month
+      ),
+      db.all('SELECT * FROM transactions WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT 6', uid),
+      db.get(
+        `SELECT COALESCE(SUM(amount),0) AS outstanding, COUNT(*) AS count FROM transactions
+         WHERE user_id = ? AND category = 'lending' AND type='expense' AND settled = 0`,
+        uid
+      ),
+      db.all(
+        `SELECT * FROM transactions WHERE user_id = ? AND category = 'lending' AND type='expense' AND settled = 0
+         ORDER BY date DESC LIMIT 5`,
+        uid
+      ),
+      userGroupBalances(uid),
+    ]);
+
+  const prevByCat = Object.fromEntries(prevCats.map((r) => [r.slug, r.total]));
   const dailyMap = Object.fromEntries(dailyRows.map((r) => [r.date, r.total]));
-  const prevDaily = db
-    .prepare(
-      `SELECT CAST(substr(date,9,2) AS INTEGER) AS day, SUM(amount) AS total FROM transactions
-       WHERE user_id = ? AND type='expense' AND substr(date,1,7) = ? GROUP BY day`
-    )
-    .all(uid, prev);
   const prevDailyMap = Object.fromEntries(prevDaily.map((r) => [r.day, r.total]));
   let cum = 0;
   let prevCum = 0;
@@ -74,44 +99,8 @@ router.get('/summary', (req, res) => {
     daily.push({ day: d, date, total: round2(v), cumulative: d <= lastDay ? round2(cum) : null, previous: round2(prevCum) });
   }
 
-  // Six-month trend
-  const months = [];
-  for (let i = 5; i >= 0; i--) months.push(shiftMonth(month, -i));
-  const trendRows = db
-    .prepare(
-      `SELECT substr(date,1,7) AS month,
-              SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS spent,
-              SUM(CASE WHEN type='income' THEN amount ELSE 0 END) AS income
-       FROM transactions WHERE user_id = ? AND substr(date,1,7) BETWEEN ? AND ? GROUP BY month`
-    )
-    .all(uid, months[0], months[5]);
   const trendMap = Object.fromEntries(trendRows.map((r) => [r.month, r]));
   const trend = months.map((m) => ({ month: m, spent: round2(trendMap[m]?.spent || 0), income: round2(trendMap[m]?.income || 0) }));
-
-  const topMerchants = db
-    .prepare(
-      `SELECT name, SUM(amount) AS total, COUNT(*) AS count FROM transactions
-       WHERE user_id = ? AND type='expense' AND substr(date,1,7) = ?
-       GROUP BY lower(name) ORDER BY total DESC LIMIT 5`
-    )
-    .all(uid, month);
-
-  const recent = db
-    .prepare('SELECT * FROM transactions WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT 6')
-    .all(uid);
-
-  const lending = db
-    .prepare(
-      `SELECT COALESCE(SUM(amount),0) AS outstanding, COUNT(*) AS count FROM transactions
-       WHERE user_id = ? AND category = 'lending' AND type='expense' AND settled = 0`
-    )
-    .get(uid);
-  const lendingItems = db
-    .prepare(
-      `SELECT * FROM transactions WHERE user_id = ? AND category = 'lending' AND type='expense' AND settled = 0
-       ORDER BY date DESC LIMIT 5`
-    )
-    .all(uid);
 
   const daysElapsed = Math.max(1, lastDay);
   const dailyAvg = cur.spent / daysElapsed;
@@ -169,7 +158,7 @@ router.get('/summary', (req, res) => {
     topMerchants,
     recent,
     lending: { outstanding: round2(lending.outstanding), count: lending.count, items: lendingItems },
-    groups: userGroupBalances(uid),
+    groups,
     insights: insights.slice(0, 4),
   });
 });

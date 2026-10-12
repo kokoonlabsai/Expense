@@ -5,40 +5,48 @@
 const express = require('express');
 const { db } = require('../db');
 const { HttpError, requireAuth, today } = require('../util');
-const { normalizeTransaction, insertTransaction } = require('../transactions');
+const { loadCategories, normalizeTransaction, insertTransaction } = require('../transactions');
 
 const router = express.Router();
 router.use(requireAuth({ allowApiKey: true }));
 
 router.get('/ping', (req, res) => res.json({ ok: true, user: req.user.name }));
 
-router.get('/categories', (req, res) => {
-  const categories = db.prepare('SELECT slug, name FROM categories WHERE user_id = ? ORDER BY id').all(req.user.id);
+router.get('/categories', async (req, res) => {
+  const categories = await db.all('SELECT slug, name FROM categories WHERE user_id = ? ORDER BY id', req.user.id);
   res.json({ categories });
 });
 
-function createMany(req, payloads) {
+async function createMany(req, payloads) {
   if (payloads.length > 200) throw new HttpError(413, 'Send at most 200 transactions per request');
   // Validate everything first so a batch is all-or-nothing.
-  const prepared = payloads.map((p, i) => {
+  const cats = await loadCategories(req.user.id);
+  const prepared = [];
+  for (const [i, p] of payloads.entries()) {
     try {
-      return normalizeTransaction(req.user.id, p || {});
+      prepared.push(await normalizeTransaction(req.user.id, p || {}, { cats }));
     } catch (e) {
       if (e instanceof HttpError) throw new HttpError(e.status, `Item ${i}: ${e.message}`, { index: i, ...e.details });
       throw e;
     }
-  });
+  }
   const source = String(req.get('x-source') || req.body?.source || 'api').slice(0, 30);
-  return db.transaction(() =>
-    prepared.map(({ data, warnings }) => ({ transaction: insertTransaction(req.user.id, data, source), warnings }))
-  )();
+  if (prepared.length === 1) {
+    const { data, warnings } = prepared[0];
+    return [{ transaction: await insertTransaction(req.user.id, data, source), warnings }];
+  }
+  return db.tx(async (t) => {
+    const out = [];
+    for (const { data, warnings } of prepared) out.push({ transaction: await insertTransaction(req.user.id, data, source, t), warnings });
+    return out;
+  });
 }
 
-router.post('/transactions', (req, res) => {
+router.post('/transactions', async (req, res) => {
   const body = req.body;
   const list = Array.isArray(body) ? body : Array.isArray(body?.transactions) ? body.transactions : null;
   if (list) {
-    const results = createMany(req, list);
+    const results = await createMany(req, list);
     return res.status(201).json({
       ok: true,
       count: results.length,
@@ -46,7 +54,7 @@ router.post('/transactions', (req, res) => {
       warnings: results.flatMap((r) => r.warnings),
     });
   }
-  const [result] = createMany(req, [body]);
+  const [result] = await createMany(req, [body]);
   const t = result.transaction;
   res.status(201).json({
     ok: true,
@@ -57,21 +65,20 @@ router.post('/transactions', (req, res) => {
 });
 
 // Minimal GET variant for automation apps that can only open URLs.
-router.get('/add', (req, res) => {
-  const [result] = createMany(req, [req.query]);
+router.get('/add', async (req, res) => {
+  const [result] = await createMany(req, [req.query]);
   res.status(201).json({ ok: true, transaction: result.transaction, warnings: result.warnings });
 });
 
-router.get('/summary', (req, res) => {
+router.get('/summary', async (req, res) => {
   const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : today().slice(0, 7);
-  const row = db
-    .prepare(
-      `SELECT COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS spent,
-              COALESCE(SUM(CASE WHEN type='income' THEN amount END),0) AS income,
-              COUNT(*) AS count
-       FROM transactions WHERE user_id = ? AND substr(date,1,7) = ?`
-    )
-    .get(req.user.id, month);
+  const row = await db.get(
+    `SELECT COALESCE(SUM(CASE WHEN type='expense' THEN amount END),0) AS spent,
+            COALESCE(SUM(CASE WHEN type='income' THEN amount END),0) AS income,
+            COUNT(*) AS count
+     FROM transactions WHERE user_id = ? AND substr(date,1,7) = ?`,
+    req.user.id, month
+  );
   res.json({ month, currency: req.user.currency, ...row, budget: req.user.monthly_budget });
 });
 

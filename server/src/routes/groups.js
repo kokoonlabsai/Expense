@@ -2,17 +2,19 @@ const express = require('express');
 const { db } = require('../db');
 const { HttpError, requireAuth, normalizePhone, parseDate, parseAmount, round2 } = require('../util');
 const { insertTransaction, resolveCategory } = require('../transactions');
+const { deleteGroup } = require('../cleanup');
 
 const router = express.Router();
 router.use(requireAuth());
 
 // ---------- helpers ----------
 
-function loadGroupForUser(groupId, userId) {
-  const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(groupId);
-  if (!group) throw new HttpError(404, 'Group not found');
-  const me = db.prepare('SELECT * FROM group_members WHERE group_id = ? AND user_id = ?').get(groupId, userId);
-  if (!me) throw new HttpError(404, 'Group not found');
+async function loadGroupForUser(groupId, userId) {
+  const [group, me] = await Promise.all([
+    db.get('SELECT * FROM groups WHERE id = ?', groupId),
+    db.get('SELECT * FROM group_members WHERE group_id = ? AND user_id = ?', groupId, userId),
+  ]);
+  if (!group || !me) throw new HttpError(404, 'Group not found');
   return { group, me };
 }
 
@@ -66,28 +68,42 @@ function computeShares(amount, splitType, splits, memberIds) {
   return used.map((s, i) => ({ member_id: s.member_id, amount: parts[i] / 100 }));
 }
 
-/** Net balance per member: positive = they are owed money, negative = they owe. */
-function balancesFor(groupId) {
-  const members = db.prepare('SELECT * FROM group_members WHERE group_id = ? ORDER BY id').all(groupId);
-  const bal = Object.fromEntries(members.map((m) => [m.id, 0]));
-  const paid = db
-    .prepare('SELECT paid_by AS id, SUM(amount) AS total FROM group_expenses WHERE group_id = ? GROUP BY paid_by')
-    .all(groupId);
-  for (const p of paid) bal[p.id] = (bal[p.id] || 0) + Math.round(p.total * 100);
-  const owed = db
-    .prepare(
+/**
+ * Net balance per member for several groups at once (4 queries total).
+ * Positive = they are owed money, negative = they owe. Values in cents.
+ */
+async function balancesForGroups(groupIds) {
+  const out = Object.fromEntries(groupIds.map((id) => [id, { members: [], cents: {} }]));
+  if (!groupIds.length) return out;
+  const inList = groupIds.map(() => '?').join(',');
+  const [members, paid, owed, settles] = await Promise.all([
+    db.all(`SELECT * FROM group_members WHERE group_id IN (${inList}) ORDER BY id`, ...groupIds),
+    db.all(`SELECT paid_by AS id, SUM(amount) AS total FROM group_expenses WHERE group_id IN (${inList}) GROUP BY paid_by`, ...groupIds),
+    db.all(
       `SELECT s.member_id AS id, SUM(s.amount) AS total FROM group_expense_shares s
-       JOIN group_expenses e ON e.id = s.expense_id WHERE e.group_id = ? GROUP BY s.member_id`
-    )
-    .all(groupId);
-  for (const o of owed) bal[o.id] = (bal[o.id] || 0) - Math.round(o.total * 100);
-  const settles = db.prepare('SELECT * FROM settlements WHERE group_id = ?').all(groupId);
-  for (const s of settles) {
-    const c = Math.round(s.amount * 100);
-    bal[s.from_member] += c;
-    bal[s.to_member] -= c;
+       JOIN group_expenses e ON e.id = s.expense_id WHERE e.group_id IN (${inList}) GROUP BY s.member_id`,
+      ...groupIds
+    ),
+    db.all(`SELECT * FROM settlements WHERE group_id IN (${inList})`, ...groupIds),
+  ]);
+  const cents = {};
+  for (const m of members) {
+    out[m.group_id].members.push(m);
+    cents[m.id] = 0;
   }
-  return { members, cents: bal };
+  for (const p of paid) cents[p.id] = (cents[p.id] || 0) + Math.round(p.total * 100);
+  for (const o of owed) cents[o.id] = (cents[o.id] || 0) - Math.round(o.total * 100);
+  for (const st of settles) {
+    const c = Math.round(st.amount * 100);
+    cents[st.from_member] += c;
+    cents[st.to_member] -= c;
+  }
+  for (const m of members) out[m.group_id].cents[m.id] = cents[m.id];
+  return out;
+}
+
+async function balancesFor(groupId) {
+  return (await balancesForGroups([groupId]))[groupId];
 }
 
 /** Greedy debt simplification — minimal-ish set of payments to settle everyone. */
@@ -114,25 +130,23 @@ function simplify(cents) {
   return out;
 }
 
-function groupSummary(groupId, meId) {
-  const { members, cents } = balancesFor(groupId);
-  const total = db.prepare('SELECT COALESCE(SUM(amount),0) AS t, COUNT(*) AS n FROM group_expenses WHERE group_id = ?').get(groupId);
-  return { members, myBalance: (cents[meId] || 0) / 100, total: round2(total.t), expenseCount: total.n, cents };
+/** Groups the user belongs to, with their own member id. */
+function myGroups(userId) {
+  return db.all(
+    `SELECT g.*, m.id AS me FROM groups g JOIN group_members m ON m.group_id = g.id AND m.user_id = ?
+     ORDER BY g.id DESC`,
+    userId
+  );
 }
 
 /** Aggregated "you owe / you are owed" across all of a user's groups (used by the dashboard). */
-function userGroupBalances(userId) {
-  const rows = db
-    .prepare(
-      `SELECT g.id, g.name, g.emoji, m.id AS me FROM groups g
-       JOIN group_members m ON m.group_id = g.id AND m.user_id = ?`
-    )
-    .all(userId);
+async function userGroupBalances(userId) {
+  const rows = await myGroups(userId);
+  const balances = await balancesForGroups(rows.map((g) => g.id));
   let owed = 0;
   let owe = 0;
   const groups = rows.map((g) => {
-    const { cents } = balancesFor(g.id);
-    const b = (cents[g.me] || 0) / 100;
+    const b = (balances[g.id].cents[g.me] || 0) / 100;
     if (b > 0) owed += b;
     else owe += -b;
     return { id: g.id, name: g.name, emoji: g.emoji, balance: round2(b) };
@@ -140,84 +154,81 @@ function userGroupBalances(userId) {
   return { owed: round2(owed), owe: round2(owe), groups };
 }
 
-function addMember(groupId, { name, phone }) {
+async function addMember(groupId, { name, phone }, q = db) {
   const p = phone ? normalizePhone(phone) : null;
   if (phone && !p) throw new HttpError(422, `"${phone}" isn't a valid phone number`);
-  const user = p ? db.prepare('SELECT id, name FROM users WHERE phone = ?').get(p) : null;
+  const user = p ? await q.get('SELECT id, name FROM users WHERE phone = ?', p) : null;
   const display = String(name || '').trim() || user?.name;
   if (!display) throw new HttpError(422, 'Each member needs a name or a registered phone number');
-  if (p && db.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND phone = ?').get(groupId, p)) {
+  if (p && (await q.get('SELECT 1 FROM group_members WHERE group_id = ? AND phone = ?', groupId, p))) {
     throw new HttpError(409, `${display} is already in this group`);
   }
-  const info = db
-    .prepare('INSERT INTO group_members (group_id, name, phone, user_id) VALUES (?, ?, ?, ?)')
-    .run(groupId, display.slice(0, 60), p, user?.id || null);
-  return db.prepare('SELECT * FROM group_members WHERE id = ?').get(info.lastInsertRowid);
+  const info = await q.run(
+    'INSERT INTO group_members (group_id, name, phone, user_id) VALUES (?, ?, ?, ?)',
+    groupId, display.slice(0, 60), p, user?.id || null
+  );
+  return q.get('SELECT * FROM group_members WHERE id = ?', info.lastInsertRowid);
 }
 
 // ---------- routes ----------
 
-router.get('/', (req, res) => {
-  const groups = db
-    .prepare(
-      `SELECT g.*, m.id AS me FROM groups g JOIN group_members m ON m.group_id = g.id AND m.user_id = ?
-       ORDER BY g.id DESC`
-    )
-    .all(req.user.id);
+router.get('/', async (req, res) => {
+  const groups = await myGroups(req.user.id);
+  const ids = groups.map((g) => g.id);
+  const [balances, totals] = await Promise.all([
+    balancesForGroups(ids),
+    ids.length
+      ? db.all(
+          `SELECT group_id, COALESCE(SUM(amount),0) AS t, COUNT(*) AS n FROM group_expenses
+           WHERE group_id IN (${ids.map(() => '?').join(',')}) GROUP BY group_id`,
+          ...ids
+        )
+      : [],
+  ]);
+  const totalBy = Object.fromEntries(totals.map((r) => [r.group_id, r]));
   res.json({
-    groups: groups.map((g) => {
-      const s = groupSummary(g.id, g.me);
-      return {
-        id: g.id,
-        name: g.name,
-        emoji: g.emoji,
-        created_at: g.created_at,
-        members: s.members.map((m) => ({ id: m.id, name: m.name })),
-        my_balance: round2(s.myBalance),
-        total: s.total,
-        expense_count: s.expenseCount,
-      };
-    }),
+    groups: groups.map((g) => ({
+      id: g.id,
+      name: g.name,
+      emoji: g.emoji,
+      created_at: g.created_at,
+      members: balances[g.id].members.map((m) => ({ id: m.id, name: m.name })),
+      my_balance: round2((balances[g.id].cents[g.me] || 0) / 100),
+      total: round2(totalBy[g.id]?.t || 0),
+      expense_count: totalBy[g.id]?.n || 0,
+    })),
   });
 });
 
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const name = String(req.body?.name || '').trim();
   if (!name) throw new HttpError(422, 'Give your group a name', { name: 'Required' });
   const emoji = String(req.body?.emoji || '✨').slice(0, 8);
   const members = Array.isArray(req.body?.members) ? req.body.members : [];
-  const id = db.transaction(() => {
-    const info = db.prepare('INSERT INTO groups (name, emoji, created_by) VALUES (?, ?, ?)').run(name.slice(0, 60), emoji, req.user.id);
+  const id = await db.tx(async (t) => {
+    const info = await t.run('INSERT INTO groups (name, emoji, created_by) VALUES (?, ?, ?)', name.slice(0, 60), emoji, req.user.id);
     const gid = info.lastInsertRowid;
-    db.prepare('INSERT INTO group_members (group_id, name, phone, user_id) VALUES (?, ?, ?, ?)').run(
-      gid, req.user.name, req.user.phone, req.user.id
-    );
+    await t.run('INSERT INTO group_members (group_id, name, phone, user_id) VALUES (?, ?, ?, ?)', gid, req.user.name, req.user.phone, req.user.id);
     for (const m of members) {
       if (!m || (!m.name && !m.phone)) continue;
       if (m.phone && normalizePhone(m.phone) === req.user.phone) continue;
-      addMember(gid, m);
+      await addMember(gid, m, t);
     }
     return gid;
-  })();
+  });
   res.status(201).json({ id });
 });
 
-router.get('/:id', (req, res) => {
-  const { group, me } = loadGroupForUser(req.params.id, req.user.id);
-  const { members, cents } = balancesFor(group.id);
-  const expenses = db
-    .prepare('SELECT * FROM group_expenses WHERE group_id = ? ORDER BY date DESC, id DESC')
-    .all(group.id);
-  const shares = db
-    .prepare(
-      `SELECT s.* FROM group_expense_shares s JOIN group_expenses e ON e.id = s.expense_id WHERE e.group_id = ?`
-    )
-    .all(group.id);
+router.get('/:id', async (req, res) => {
+  const { group, me } = await loadGroupForUser(req.params.id, req.user.id);
+  const [{ members, cents }, expenses, shares, settlements] = await Promise.all([
+    balancesFor(group.id),
+    db.all('SELECT * FROM group_expenses WHERE group_id = ? ORDER BY date DESC, id DESC', group.id),
+    db.all('SELECT s.* FROM group_expense_shares s JOIN group_expenses e ON e.id = s.expense_id WHERE e.group_id = ?', group.id),
+    db.all('SELECT * FROM settlements WHERE group_id = ? ORDER BY date DESC, id DESC', group.id),
+  ]);
   const byExpense = {};
-  for (const s of shares) (byExpense[s.expense_id] ||= []).push({ member_id: s.member_id, amount: s.amount });
-  const settlements = db
-    .prepare('SELECT * FROM settlements WHERE group_id = ? ORDER BY date DESC, id DESC')
-    .all(group.id);
+  for (const sh of shares) (byExpense[sh.expense_id] ||= []).push({ member_id: sh.member_id, amount: sh.amount });
   const total = expenses.reduce((a, e) => a + e.amount, 0);
 
   res.json({
@@ -238,47 +249,44 @@ router.get('/:id', (req, res) => {
   });
 });
 
-router.patch('/:id', (req, res) => {
-  const { group } = loadGroupForUser(req.params.id, req.user.id);
+router.patch('/:id', async (req, res) => {
+  const { group } = await loadGroupForUser(req.params.id, req.user.id);
   const name = req.body?.name !== undefined ? String(req.body.name).trim().slice(0, 60) || group.name : group.name;
   const emoji = req.body?.emoji ? String(req.body.emoji).slice(0, 8) : group.emoji;
-  db.prepare('UPDATE groups SET name = ?, emoji = ? WHERE id = ?').run(name, emoji, group.id);
+  await db.run('UPDATE groups SET name = ?, emoji = ? WHERE id = ?', name, emoji, group.id);
   res.json({ ok: true });
 });
 
-router.delete('/:id', (req, res) => {
-  const { group } = loadGroupForUser(req.params.id, req.user.id);
+router.delete('/:id', async (req, res) => {
+  const { group } = await loadGroupForUser(req.params.id, req.user.id);
   if (group.created_by !== req.user.id) throw new HttpError(403, 'Only the person who created the group can delete it');
-  db.transaction(() => {
-    db.prepare(
-      'DELETE FROM transactions WHERE group_expense_id IN (SELECT id FROM group_expenses WHERE group_id = ?)'
-    ).run(group.id);
-    db.prepare('DELETE FROM groups WHERE id = ?').run(group.id);
-  })();
+  await deleteGroup(group.id);
   res.status(204).end();
 });
 
-router.post('/:id/members', (req, res) => {
-  const { group } = loadGroupForUser(req.params.id, req.user.id);
-  const m = addMember(group.id, req.body || {});
+router.post('/:id/members', async (req, res) => {
+  const { group } = await loadGroupForUser(req.params.id, req.user.id);
+  const m = await addMember(group.id, req.body || {});
   res.status(201).json({ member: m });
 });
 
-router.delete('/:id/members/:mid', (req, res) => {
-  const { group, me } = loadGroupForUser(req.params.id, req.user.id);
+router.delete('/:id/members/:mid', async (req, res) => {
+  const { group, me } = await loadGroupForUser(req.params.id, req.user.id);
   const mid = Number(req.params.mid);
   if (mid === me.id) throw new HttpError(400, "You can't remove yourself");
-  const used =
-    db.prepare('SELECT 1 FROM group_expenses WHERE group_id = ? AND paid_by = ?').get(group.id, mid) ||
-    db.prepare('SELECT 1 FROM group_expense_shares WHERE member_id = ?').get(mid) ||
-    db.prepare('SELECT 1 FROM settlements WHERE from_member = ? OR to_member = ?').get(mid, mid);
+  const used = await db.get(
+    `SELECT 1 FROM group_expenses WHERE group_id = ? AND paid_by = ?
+     UNION ALL SELECT 1 FROM group_expense_shares WHERE member_id = ?
+     UNION ALL SELECT 1 FROM settlements WHERE from_member = ? OR to_member = ? LIMIT 1`,
+    group.id, mid, mid, mid, mid
+  );
   if (used) throw new HttpError(400, 'This person is part of existing expenses or settlements');
-  db.prepare('DELETE FROM group_members WHERE id = ? AND group_id = ?').run(mid, group.id);
+  await db.run('DELETE FROM group_members WHERE id = ? AND group_id = ?', mid, group.id);
   res.status(204).end();
 });
 
-router.post('/:id/expenses', (req, res) => {
-  const { group, me } = loadGroupForUser(req.params.id, req.user.id);
+router.post('/:id/expenses', async (req, res) => {
+  const { group, me } = await loadGroupForUser(req.params.id, req.user.id);
   const b = req.body || {};
   const description = String(b.description || '').trim();
   const amount = parseAmount(b.amount);
@@ -289,29 +297,29 @@ router.post('/:id/expenses', (req, res) => {
   if (!date) errors.date = 'Invalid date';
   if (Object.keys(errors).length) throw new HttpError(422, 'Validation failed', errors);
 
-  const members = db.prepare('SELECT id FROM group_members WHERE group_id = ?').all(group.id);
+  const members = await db.all('SELECT id FROM group_members WHERE group_id = ?', group.id);
   const memberIds = new Set(members.map((m) => m.id));
   const paidBy = Number(b.paid_by || me.id);
   if (!memberIds.has(paidBy)) throw new HttpError(422, 'Payer must be a group member');
   const splitType = b.split_type || 'equal';
   const shares = computeShares(amount, splitType, b.splits, memberIds);
   if (!shares.length) throw new HttpError(422, 'Add at least one person to the split');
-  const category = resolveCategory(req.user.id, b.category || 'other').slug;
+  const category = (await resolveCategory(req.user.id, b.category || 'other')).slug;
 
-  const id = db.transaction(() => {
-    const info = db
-      .prepare(
-        `INSERT INTO group_expenses (group_id, description, amount, paid_by, split_type, category, date, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(group.id, description.slice(0, 140), round2(amount), paidBy, splitType, category, date, req.user.id);
-    const ins = db.prepare('INSERT INTO group_expense_shares (expense_id, member_id, amount) VALUES (?, ?, ?)');
-    for (const s of shares) ins.run(info.lastInsertRowid, s.member_id, s.amount);
+  const id = await db.tx(async (t) => {
+    const info = await t.run(
+      `INSERT INTO group_expenses (group_id, description, amount, paid_by, split_type, category, date, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      group.id, description.slice(0, 140), round2(amount), paidBy, splitType, category, date, req.user.id
+    );
+    for (const sh of shares) {
+      await t.run('INSERT INTO group_expense_shares (expense_id, member_id, amount) VALUES (?, ?, ?)', info.lastInsertRowid, sh.member_id, sh.amount);
+    }
 
     // Optionally record *my share* in my personal ledger so the dashboard reflects real spend.
-    const mine = shares.find((s) => s.member_id === me.id);
+    const mine = shares.find((sh) => sh.member_id === me.id);
     if (b.add_to_ledger && mine && mine.amount > 0) {
-      insertTransaction(
+      await insertTransaction(
         req.user.id,
         {
           name: `${description} · ${group.name}`,
@@ -322,45 +330,48 @@ router.post('/:id/expenses', (req, res) => {
           note: `Your share of ${round2(amount)} split in ${group.name}`,
           group_expense_id: info.lastInsertRowid,
         },
-        'split'
+        'split',
+        t
       );
     }
     return info.lastInsertRowid;
-  })();
+  });
   res.status(201).json({ id });
 });
 
-router.delete('/:id/expenses/:eid', (req, res) => {
-  const { group } = loadGroupForUser(req.params.id, req.user.id);
-  const e = db.prepare('SELECT * FROM group_expenses WHERE id = ? AND group_id = ?').get(req.params.eid, group.id);
+router.delete('/:id/expenses/:eid', async (req, res) => {
+  const { group } = await loadGroupForUser(req.params.id, req.user.id);
+  const e = await db.get('SELECT * FROM group_expenses WHERE id = ? AND group_id = ?', req.params.eid, group.id);
   if (!e) throw new HttpError(404, 'Expense not found');
-  db.transaction(() => {
-    db.prepare('DELETE FROM transactions WHERE group_expense_id = ?').run(e.id);
-    db.prepare('DELETE FROM group_expenses WHERE id = ?').run(e.id);
-  })();
+  await db.batch([
+    ['DELETE FROM transactions WHERE group_expense_id = ?', e.id],
+    ['DELETE FROM group_expense_shares WHERE expense_id = ?', e.id],
+    ['DELETE FROM group_expenses WHERE id = ?', e.id],
+  ]);
   res.status(204).end();
 });
 
-router.post('/:id/settlements', (req, res) => {
-  const { group } = loadGroupForUser(req.params.id, req.user.id);
+router.post('/:id/settlements', async (req, res) => {
+  const { group } = await loadGroupForUser(req.params.id, req.user.id);
   const b = req.body || {};
   const from = Number(b.from_member);
   const to = Number(b.to_member);
   const amount = parseAmount(b.amount);
   const date = parseDate(b.date);
-  const ids = new Set(db.prepare('SELECT id FROM group_members WHERE group_id = ?').all(group.id).map((m) => m.id));
+  const ids = new Set((await db.all('SELECT id FROM group_members WHERE group_id = ?', group.id)).map((m) => m.id));
   if (!ids.has(from) || !ids.has(to) || from === to) throw new HttpError(422, 'Pick two different group members');
   if (!amount || amount <= 0) throw new HttpError(422, 'Enter an amount');
   if (!date) throw new HttpError(422, 'Invalid date');
-  const info = db
-    .prepare('INSERT INTO settlements (group_id, from_member, to_member, amount, date, note) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(group.id, from, to, round2(amount), date, b.note ? String(b.note).slice(0, 200) : null);
+  const info = await db.run(
+    'INSERT INTO settlements (group_id, from_member, to_member, amount, date, note) VALUES (?, ?, ?, ?, ?, ?)',
+    group.id, from, to, round2(amount), date, b.note ? String(b.note).slice(0, 200) : null
+  );
   res.status(201).json({ id: info.lastInsertRowid });
 });
 
-router.delete('/:id/settlements/:sid', (req, res) => {
-  const { group } = loadGroupForUser(req.params.id, req.user.id);
-  const r = db.prepare('DELETE FROM settlements WHERE id = ? AND group_id = ?').run(req.params.sid, group.id);
+router.delete('/:id/settlements/:sid', async (req, res) => {
+  const { group } = await loadGroupForUser(req.params.id, req.user.id);
+  const r = await db.run('DELETE FROM settlements WHERE id = ? AND group_id = ?', req.params.sid, group.id);
   if (!r.changes) throw new HttpError(404, 'Settlement not found');
   res.status(204).end();
 });

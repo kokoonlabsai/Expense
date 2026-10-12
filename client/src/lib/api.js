@@ -1,5 +1,10 @@
 const TOKEN_KEY = 'tally.token';
 
+// Where the backend lives. Empty = same origin (local dev via Vite proxy, or one server for both).
+// Set VITE_API_URL=https://your-api.ondigitalocean.app when the frontend is hosted separately.
+export const API_ORIGIN = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '');
+const BASE = `${API_ORIGIN}/api`;
+
 export const getToken = () => {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
 };
@@ -19,7 +24,7 @@ let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn) => { onUnauthorized = fn; };
 
 export async function api(path, { method = 'GET', body, query } = {}) {
-  let url = '/api' + path;
+  let url = BASE + path;
   if (query) {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(query)) {
@@ -49,7 +54,7 @@ export async function api(path, { method = 'GET', body, query } = {}) {
 
 export async function download(path, query, filename) {
   const qs = new URLSearchParams(Object.entries(query || {}).filter(([, v]) => v !== '' && v != null && !(Array.isArray(v) && !v.length)).map(([k, v]) => [k, Array.isArray(v) ? v.join(',') : v]));
-  const res = await fetch(`/api${path}?${qs}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+  const res = await fetch(`${BASE}${path}?${qs}`, { headers: { Authorization: `Bearer ${getToken()}` } });
   if (!res.ok) throw new ApiError(res.status, 'Download failed');
   const blob = await res.blob();
   const a = document.createElement('a');

@@ -34,37 +34,42 @@ function hashKey(key) {
   return crypto.createHash('sha256').update(key).digest('hex');
 }
 
-function userFromApiKey(key) {
+async function userFromApiKey(key) {
   if (!key || !key.startsWith('tly_')) return null;
-  const row = db.prepare('SELECT id, user_id FROM api_keys WHERE key_hash = ?').get(hashKey(key));
+  const row = await db.get('SELECT id, user_id FROM api_keys WHERE key_hash = ?', hashKey(key));
   if (!row) return null;
-  db.prepare("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?").run(row.id);
-  return db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id);
+  db.run("UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?", row.id).catch(() => {});
+  return (await db.get('SELECT * FROM users WHERE id = ?', row.user_id)) || null;
 }
 
-function userFromJwt(token) {
+async function userFromJwt(token) {
+  let payload;
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    return db.prepare('SELECT * FROM users WHERE id = ?').get(payload.sub) || null;
+    payload = jwt.verify(token, JWT_SECRET);
   } catch {
     return null;
   }
+  return (await db.get('SELECT * FROM users WHERE id = ?', payload.sub)) || null;
 }
 
 /** Session auth for the web app (JWT). Set allowApiKey to also accept API keys. */
 function requireAuth({ allowApiKey = false } = {}) {
-  return (req, res, next) => {
-    const header = req.get('authorization') || '';
-    const bearer = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : null;
-    const apiKey = req.get('x-api-key') || (bearer && bearer.startsWith('tly_') ? bearer : null) ||
-      (allowApiKey ? req.query.api_key : null);
+  return async (req, res, next) => {
+    try {
+      const header = req.get('authorization') || '';
+      const bearer = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : null;
+      const apiKey = req.get('x-api-key') || (bearer && bearer.startsWith('tly_') ? bearer : null) ||
+        (allowApiKey ? req.query.api_key : null);
 
-    let user = null;
-    if (allowApiKey && apiKey) user = userFromApiKey(apiKey);
-    if (!user && bearer && !bearer.startsWith('tly_')) user = userFromJwt(bearer);
-    if (!user) return next(new HttpError(401, 'Not authenticated'));
-    req.user = user;
-    next();
+      let user = null;
+      if (allowApiKey && apiKey) user = await userFromApiKey(apiKey);
+      if (!user && bearer && !bearer.startsWith('tly_')) user = await userFromJwt(bearer);
+      if (!user) return next(new HttpError(401, 'Not authenticated'));
+      req.user = user;
+      next();
+    } catch (e) {
+      next(e);
+    }
   };
 }
 

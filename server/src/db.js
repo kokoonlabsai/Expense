@@ -1,15 +1,70 @@
 const path = require('path');
 const fs = require('fs');
-const Database = require('better-sqlite3');
+const { createClient } = require('@libsql/client');
 
-const dbFile = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'tally.db');
-fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+/**
+ * Database: Turso (hosted libSQL/SQLite) when TURSO_DATABASE_URL is set,
+ * otherwise a local SQLite file — same SQL either way.
+ */
+function connect() {
+  if (process.env.TURSO_DATABASE_URL) {
+    return createClient({ url: process.env.TURSO_DATABASE_URL, authToken: process.env.TURSO_AUTH_TOKEN });
+  }
+  const file = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'tally.db');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  return createClient({ url: `file:${file}` });
+}
 
-const db = new Database(dbFile);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const client = connect();
 
-db.exec(`
+const clean = (v) => (v === undefined ? null : typeof v === 'boolean' ? (v ? 1 : 0) : v);
+function toArgs(params) {
+  if (params.length === 1 && params[0] && typeof params[0] === 'object' && !Array.isArray(params[0])) {
+    return Object.fromEntries(Object.entries(params[0]).map(([k, v]) => [k, clean(v)]));
+  }
+  return params.map(clean);
+}
+const toObjects = (rs) => rs.rows.map((r) => ({ ...r }));
+
+/** Small query helpers shared by the client and transactions. */
+function wrap(exec) {
+  return {
+    async all(sql, ...params) {
+      return toObjects(await exec({ sql, args: toArgs(params) }));
+    },
+    async get(sql, ...params) {
+      return toObjects(await exec({ sql, args: toArgs(params) }))[0];
+    },
+    async run(sql, ...params) {
+      const rs = await exec({ sql, args: toArgs(params) });
+      return { changes: rs.rowsAffected, lastInsertRowid: rs.lastInsertRowid === undefined ? undefined : Number(rs.lastInsertRowid) };
+    },
+  };
+}
+
+const db = {
+  ...wrap((stmt) => client.execute(stmt)),
+  /** Several writes in one atomic round-trip. */
+  batch(statements) {
+    return client.batch(statements.map(([sql, ...params]) => ({ sql, args: toArgs(params) })), 'write');
+  },
+  /** Interactive transaction: fn receives the same all/get/run helpers. */
+  async tx(fn) {
+    const t = await client.transaction('write');
+    try {
+      const result = await fn(wrap((stmt) => t.execute(stmt)));
+      await t.commit();
+      return result;
+    } catch (e) {
+      await t.rollback().catch(() => {});
+      throw e;
+    } finally {
+      t.close();
+    }
+  },
+};
+
+const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -73,6 +128,7 @@ CREATE TABLE IF NOT EXISTS group_members (
   phone TEXT,
   user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
+CREATE INDEX IF NOT EXISTS idx_members_user ON group_members(user_id);
 
 CREATE TABLE IF NOT EXISTS group_expenses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,7 +160,9 @@ CREATE TABLE IF NOT EXISTS settlements (
   note TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-`);
+`;
+
+const ready = client.executeMultiple(SCHEMA);
 
 const DEFAULT_CATEGORIES = [
   { slug: 'food', name: 'Food & Dining', color: '#FF7A59', icon: 'utensils' },
@@ -126,13 +184,12 @@ const DEFAULT_CATEGORIES = [
 ];
 
 function seedCategories(userId) {
-  const insert = db.prepare(
-    'INSERT OR IGNORE INTO categories (user_id, slug, name, color, icon) VALUES (?, ?, ?, ?, ?)'
+  return db.batch(
+    DEFAULT_CATEGORIES.map((c) => [
+      'INSERT OR IGNORE INTO categories (user_id, slug, name, color, icon) VALUES (?, ?, ?, ?, ?)',
+      userId, c.slug, c.name, c.color, c.icon,
+    ])
   );
-  const tx = db.transaction(() => {
-    for (const c of DEFAULT_CATEGORIES) insert.run(userId, c.slug, c.name, c.color, c.icon);
-  });
-  tx();
 }
 
-module.exports = { db, seedCategories, DEFAULT_CATEGORIES };
+module.exports = { db, client, ready, seedCategories, DEFAULT_CATEGORIES };
