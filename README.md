@@ -70,6 +70,7 @@ The tables are created automatically on first start.
 | `JWT_SECRET` | dev value | **Required in production.** Keep it stable or everyone is logged out |
 | `TURSO_DATABASE_URL` | — | Turso database URL. If unset, a local SQLite file is used |
 | `TURSO_AUTH_TOKEN` | — | Turso auth token |
+| `TZ` | `UTC` on most hosts | Your time zone, e.g. `Asia/Kolkata`. Decides what "today" and "this month" mean for API entries without a date |
 | `CORS_ORIGIN` | allow all | Comma-separated frontend URLs (only needed when the frontend is on another domain) |
 | `PORT` | `4000` (`8080` in Docker) | |
 | `DB_PATH` | `server/data/tally.db` | Local SQLite file when not using Turso |

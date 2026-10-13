@@ -32,6 +32,8 @@ services:
     health_check:
       http_path: /api/health
     envs:
+      - key: TZ                     # your time zone — decides what "today" and "this month" mean
+        value: Asia/Kolkata
       - key: JWT_SECRET
         type: SECRET
         value: change-me-to-a-long-random-string
