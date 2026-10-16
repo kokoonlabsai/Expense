@@ -44,6 +44,8 @@ app.use('/api/auth', rateLimit(20, 60_000), require('./routes/auth'));
 app.use('/api/v1', require('./routes/v1'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/groups', require('./routes/groups'));
+app.use('/api/people', require('./routes/people'));
+app.use('/api/invites', rateLimit(60, 60_000), require('./routes/invites'));
 app.use('/api', require('./routes/transactions'));
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));

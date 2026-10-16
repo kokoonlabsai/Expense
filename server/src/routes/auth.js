@@ -31,17 +31,27 @@ router.post(
     const user = await db.get('SELECT * FROM users WHERE id = ?', info.lastInsertRowid);
     await seedCategories(user.id);
     // Anyone who already added this phone number to a split group now sees it.
-    await db.run('UPDATE group_members SET user_id = ? WHERE phone = ? AND user_id IS NULL', user.id, phone);
+    await db.run('UPDATE group_members SET user_id = ?, invite_token = NULL WHERE phone = ? AND user_id IS NULL', user.id, phone);
     res.status(201).json({ token: signToken(user), user: publicUser(user) });
   })
 );
+
+/** Exact match first; otherwise accept the number typed without (or with a different) country code. */
+async function findByPhone(phone) {
+  const exact = await db.get('SELECT * FROM users WHERE phone = ?', phone);
+  if (exact) return exact;
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 10) return null;
+  const matches = await db.all('SELECT * FROM users WHERE phone LIKE ? LIMIT 2', `%${digits.slice(-10)}`);
+  return matches.length === 1 ? matches[0] : null;
+}
 
 router.post(
   '/login',
   wrap(async (req, res) => {
     const phone = normalizePhone(req.body?.phone);
     const password = String(req.body?.password || '');
-    const user = phone && (await db.get('SELECT * FROM users WHERE phone = ?', phone));
+    const user = phone && (await findByPhone(phone));
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       throw new HttpError(401, 'Phone number or password is incorrect');
     }

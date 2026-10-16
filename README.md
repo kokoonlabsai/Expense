@@ -4,7 +4,7 @@
 
 ## Features
 
-- **Accounts**: sign up and log in with a phone number and password. Each person's data is private to them.
+- **Accounts**: sign up and log in with a phone number and password. You can log in with or without the country code. Each person's data is private to them.
 - **Automation API**: create API keys in Settings. iOS Shortcuts, Tasker, MacroDroid, HTTP Shortcuts or a script can then post `amount`, `date`, `name` and `category`. Dates, amounts and category names are parsed leniently. You can also send a batch of up to 200.
 - **Dashboard**:
   - month total compared with last month, plus your budget and projected month-end spend
@@ -14,10 +14,12 @@
   - top merchants, money you've lent out, group balances, and plain-language insights
 - **Transactions**: search and filter by category (pick several), type, preset period, month, custom date range or amount range. You can sort, edit and delete, and export what you've filtered to CSV.
 - **Splits**:
-  - make groups of people, either registered users matched by phone number or people with just a name
+  - add people by searching. You can find people you already share a group with by name, and anyone on Tally by their full phone number. There's no browsable list of users.
+  - people on Tally see the group straight away, along with what they owe, and can add their own expenses
+  - anyone else gets an invite link. Opening it lets them sign up or log in, and they take over the spot you made for them, with its history. Each group also has a shareable join link.
   - split an expense equally, by exact amounts, by percentage or by shares
   - see each person's balance, with debts simplified to the fewest payments
-  - record settle-up payments
+  - settle up with confirmation. When someone records "I paid you", the receiver confirms it before balances change. There's also a one-tap reminder for people who owe you.
   - optionally copy your own share into your personal transactions
 - **Lending tracker**: add a person to a Lending transaction, then mark it as returned from the dashboard.
 - **Budgets and categories**: set an overall monthly budget and per-category budgets. Add custom categories with your own colour and icon.

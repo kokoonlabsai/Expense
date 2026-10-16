@@ -5,6 +5,7 @@ import { api } from '../lib/api';
 import { useApp } from '../lib/store';
 import { money } from '../lib/format';
 import { Avatar, Empty, Field, Modal, Money } from '../components/ui';
+import PeoplePicker from '../components/PeoplePicker';
 
 export const EMOJIS = ['✨', '🏖️', '🏠', '🍕', '✈️', '🎉', '🚗', '🏔️', '💼', '🎓', '🛒', '❤️'];
 
@@ -52,6 +53,7 @@ export default function Groups() {
               </div>
               <div>
                 <div className="serif" style={{ fontSize: 26, lineHeight: 1.1 }}>{g.name}</div>
+                {g.to_confirm > 0 && <span className="badge" style={{ background: '#fff4e0', color: '#9a5b00', margin: '4px 0' }}>{g.to_confirm} payment{g.to_confirm > 1 ? 's' : ''} to confirm</span>}
                 <div className="muted" style={{ fontSize: 12.5 }}>{g.members.length} people · {g.expense_count} expense{g.expense_count === 1 ? '' : 's'} · {money(g.total, currency)} total</div>
               </div>
               <div style={{ marginTop: 'auto', paddingTop: 12, borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between' }}>
@@ -75,20 +77,24 @@ export default function Groups() {
 }
 
 function CreateGroup({ onClose }) {
-  const { toast } = useApp();
+  const { toast, user } = useApp();
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('✨');
-  const [members, setMembers] = useState([{ name: '', phone: '' }]);
+  const [members, setMembers] = useState([]);
   const [busy, setBusy] = useState(false);
 
-  const setM = (i, k, v) => setMembers((ms) => ms.map((m, j) => (j === i ? { ...m, [k]: v } : m)));
+  const addPerson = (p) => {
+    const key = p.user_id ? `u${p.user_id}` : p.phone ? `p${p.phone}` : `n${p.name.toLowerCase()}`;
+    setMembers((ms) => (ms.some((m) => m.key === key) ? ms : [...ms, { ...p, key }]));
+  };
 
   async function submit(e) {
     e.preventDefault();
     setBusy(true);
     try {
-      const { id } = await api('/groups', { method: 'POST', body: { name, emoji, members: members.filter((m) => m.name || m.phone) } });
+      const body = members.map(({ user_id, phone, name: n }) => ({ user_id, phone, name: n }));
+      const { id } = await api('/groups', { method: 'POST', body: { name, emoji, members: body } });
       toast('Group created');
       navigate(`/splits/${id}`);
     } catch (err) {
@@ -111,16 +117,26 @@ function CreateGroup({ onClose }) {
           </div>
         </Field>
         <div className="field">
-          <span>People</span>
-          <small className="muted" style={{ marginTop: -4 }}>You're added automatically. Add a phone number and anyone already on Tally will see this group too.</small>
-          {members.map((m, i) => (
-            <div key={i} className="row">
-              <input className="input" placeholder="Name" value={m.name} onChange={(e) => setM(i, 'name', e.target.value)} />
-              <input className="input" type="tel" placeholder="Phone (optional)" value={m.phone} onChange={(e) => setM(i, 'phone', e.target.value)} />
-              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setMembers((ms) => ms.filter((_, j) => j !== i))} aria-label="Remove"><Trash2 size={15} /></button>
+          <span>Who's in?</span>
+          <PeoplePicker onPick={addPerson} exclude={members.filter((m) => m.user_id).map((m) => m.user_id)} />
+          <div>
+            <div className="picked" style={{ borderTop: 0 }}>
+              <Avatar name={user.name} size="sm" />
+              <span style={{ flex: 1, fontWeight: 600 }}>You</span>
             </div>
-          ))}
-          <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => setMembers((ms) => [...ms, { name: '', phone: '' }])}><Plus size={14} /> Add person</button>
+            {members.map((m) => (
+              <div key={m.key} className="picked">
+                <Avatar name={m.name} size="sm" />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <b>{m.name}</b>
+                  <span className="muted" style={{ fontSize: 12, display: 'block' }}>
+                    {m.onTally ? 'On Tally · sees the group right away' : m.phone ? 'Joins automatically when they sign up with this number' : "You'll get an invite link to send them"}
+                  </span>
+                </span>
+                <button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => setMembers((ms) => ms.filter((x) => x.key !== m.key))} aria-label="Remove"><Trash2 size={14} /></button>
+              </div>
+            ))}
+          </div>
         </div>
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button type="button" className="btn" onClick={onClose}>Cancel</button>

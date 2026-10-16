@@ -1,5 +1,6 @@
 const express = require('express');
 const { db } = require('../db');
+const crypto = require('crypto');
 const { HttpError, requireAuth, normalizePhone, parseDate, parseAmount, round2 } = require('../util');
 const { insertTransaction, resolveCategory } = require('../transactions');
 const { deleteGroup } = require('../cleanup');
@@ -84,7 +85,8 @@ async function balancesForGroups(groupIds) {
        JOIN group_expenses e ON e.id = s.expense_id WHERE e.group_id IN (${inList}) GROUP BY s.member_id`,
       ...groupIds
     ),
-    db.all(`SELECT * FROM settlements WHERE group_id IN (${inList})`, ...groupIds),
+    // Payments still waiting for the receiver's confirmation don't move balances.
+    db.all(`SELECT * FROM settlements WHERE group_id IN (${inList}) AND status = 'confirmed'`, ...groupIds),
   ]);
   const cents = {};
   for (const m of members) {
@@ -154,20 +156,49 @@ async function userGroupBalances(userId) {
   return { owed: round2(owed), owe: round2(owe), groups };
 }
 
-async function addMember(groupId, { name, phone }, q = db) {
-  const p = phone ? normalizePhone(phone) : null;
-  if (phone && !p) throw new HttpError(422, `"${phone}" isn't a valid phone number`);
-  const user = p ? await q.get('SELECT id, name FROM users WHERE phone = ?', p) : null;
-  const display = String(name || '').trim() || user?.name;
-  if (!display) throw new HttpError(422, 'Each member needs a name or a registered phone number');
-  if (p && (await q.get('SELECT 1 FROM group_members WHERE group_id = ? AND phone = ?', groupId, p))) {
-    throw new HttpError(409, `${display} is already in this group`);
+const newToken = () => crypto.randomBytes(16).toString('base64url');
+
+/** True when the two users already share at least one group. */
+async function isContact(userId, otherId, q = db) {
+  return !!(await q.get(
+    `SELECT 1 FROM group_members a JOIN group_members b ON a.group_id = b.group_id
+     WHERE a.user_id = ? AND b.user_id = ? LIMIT 1`,
+    userId, otherId
+  ));
+}
+
+/**
+ * Add someone to a group. Accepts one of:
+ *  - { user_id }  a Tally user the requester already shares a group with (from people search)
+ *  - { phone }    looked up among registered users; becomes a linked member if found
+ *  - { name }     a placeholder person who gets a personal invite link to claim the spot
+ */
+async function addMember(groupId, { user_id, name, phone }, requesterId, q = db) {
+  let user = null;
+  let p = null;
+  if (user_id) {
+    if (Number(user_id) !== requesterId && !(await isContact(requesterId, Number(user_id), q))) {
+      throw new HttpError(403, 'Search for this person by their phone number to add them');
+    }
+    user = await q.get('SELECT id, name, phone FROM users WHERE id = ?', Number(user_id));
+    if (!user) throw new HttpError(404, 'That person no longer has an account');
+    p = user.phone;
+  } else if (phone) {
+    p = normalizePhone(phone);
+    if (!p) throw new HttpError(422, `"${phone}" isn't a valid phone number`);
+    user = await q.get('SELECT id, name, phone FROM users WHERE phone = ?', p);
   }
+  const display = String(name || '').trim() || user?.name;
+  if (!display) throw new HttpError(422, 'Each member needs a name or a phone number');
+  const dup = user
+    ? await q.get('SELECT 1 FROM group_members WHERE group_id = ? AND (user_id = ? OR phone = ?)', groupId, user.id, p)
+    : p && (await q.get('SELECT 1 FROM group_members WHERE group_id = ? AND phone = ?', groupId, p));
+  if (dup) throw new HttpError(409, `${user?.name || display} is already in this group`);
   const info = await q.run(
-    'INSERT INTO group_members (group_id, name, phone, user_id) VALUES (?, ?, ?, ?)',
-    groupId, display.slice(0, 60), p, user?.id || null
+    'INSERT INTO group_members (group_id, name, phone, user_id, invite_token) VALUES (?, ?, ?, ?, ?)',
+    groupId, (user?.name || display).slice(0, 60), p, user?.id || null, user ? null : newToken()
   );
-  return q.get('SELECT * FROM group_members WHERE id = ?', info.lastInsertRowid);
+  return q.get('SELECT id, group_id, name, phone, user_id, invite_token FROM group_members WHERE id = ?', info.lastInsertRowid);
 }
 
 // ---------- routes ----------
@@ -175,7 +206,7 @@ async function addMember(groupId, { name, phone }, q = db) {
 router.get('/', async (req, res) => {
   const groups = await myGroups(req.user.id);
   const ids = groups.map((g) => g.id);
-  const [balances, totals] = await Promise.all([
+  const [balances, totals, pending] = await Promise.all([
     balancesForGroups(ids),
     ids.length
       ? db.all(
@@ -184,8 +215,14 @@ router.get('/', async (req, res) => {
           ...ids
         )
       : [],
+    db.all(
+      `SELECT s.group_id, COUNT(*) AS n FROM settlements s JOIN group_members m ON m.id = s.to_member
+       WHERE m.user_id = ? AND s.status = 'pending' GROUP BY s.group_id`,
+      req.user.id
+    ),
   ]);
   const totalBy = Object.fromEntries(totals.map((r) => [r.group_id, r]));
+  const pendingBy = Object.fromEntries(pending.map((r) => [r.group_id, r.n]));
   res.json({
     groups: groups.map((g) => ({
       id: g.id,
@@ -196,6 +233,7 @@ router.get('/', async (req, res) => {
       my_balance: round2((balances[g.id].cents[g.me] || 0) / 100),
       total: round2(totalBy[g.id]?.t || 0),
       expense_count: totalBy[g.id]?.n || 0,
+      to_confirm: pendingBy[g.id] || 0,
     })),
   });
 });
@@ -210,9 +248,9 @@ router.post('/', async (req, res) => {
     const gid = info.lastInsertRowid;
     await t.run('INSERT INTO group_members (group_id, name, phone, user_id) VALUES (?, ?, ?, ?)', gid, req.user.name, req.user.phone, req.user.id);
     for (const m of members) {
-      if (!m || (!m.name && !m.phone)) continue;
-      if (m.phone && normalizePhone(m.phone) === req.user.phone) continue;
-      await addMember(gid, m, t);
+      if (!m || (!m.name && !m.phone && !m.user_id)) continue;
+      if (Number(m.user_id) === req.user.id || (m.phone && normalizePhone(m.phone) === req.user.phone)) continue;
+      await addMember(gid, m, req.user.id, t);
     }
     return gid;
   });
@@ -238,6 +276,7 @@ router.get('/:id', async (req, res) => {
       id: m.id,
       name: m.name,
       phone: m.phone,
+      user_id: m.user_id,
       registered: !!m.user_id,
       is_me: m.id === me.id,
       balance: (cents[m.id] || 0) / 100,
@@ -266,8 +305,33 @@ router.delete('/:id', async (req, res) => {
 
 router.post('/:id/members', async (req, res) => {
   const { group } = await loadGroupForUser(req.params.id, req.user.id);
-  const m = await addMember(group.id, req.body || {});
-  res.status(201).json({ member: m });
+  const m = await addMember(group.id, req.body || {}, req.user.id);
+  res.status(201).json({ member: { id: m.id, name: m.name, registered: !!m.user_id, invite_token: m.invite_token } });
+});
+
+/** Shareable link that lets anyone with it join the group. */
+router.post('/:id/invite', async (req, res) => {
+  const { group } = await loadGroupForUser(req.params.id, req.user.id);
+  let token = group.invite_token;
+  if (!token) {
+    token = newToken();
+    await db.run('UPDATE groups SET invite_token = ? WHERE id = ?', token, group.id);
+  }
+  res.json({ token });
+});
+
+/** Personal link for a placeholder member: whoever opens it takes over that spot (and its history). */
+router.post('/:id/members/:mid/invite', async (req, res) => {
+  const { group } = await loadGroupForUser(req.params.id, req.user.id);
+  const m = await db.get('SELECT * FROM group_members WHERE id = ? AND group_id = ?', req.params.mid, group.id);
+  if (!m) throw new HttpError(404, 'Member not found');
+  if (m.user_id) throw new HttpError(400, `${m.name} is already on Tally and can see this group`);
+  let token = m.invite_token;
+  if (!token) {
+    token = newToken();
+    await db.run('UPDATE group_members SET invite_token = ? WHERE id = ?', token, m.id);
+  }
+  res.json({ token, name: m.name });
 });
 
 router.delete('/:id/members/:mid', async (req, res) => {
@@ -358,25 +422,46 @@ router.post('/:id/settlements', async (req, res) => {
   const to = Number(b.to_member);
   const amount = parseAmount(b.amount);
   const date = parseDate(b.date);
-  const ids = new Set((await db.all('SELECT id FROM group_members WHERE group_id = ?', group.id)).map((m) => m.id));
-  if (!ids.has(from) || !ids.has(to) || from === to) throw new HttpError(422, 'Pick two different group members');
+  const members = await db.all('SELECT id, user_id, name FROM group_members WHERE group_id = ?', group.id);
+  const byId = Object.fromEntries(members.map((m) => [m.id, m]));
+  if (!byId[from] || !byId[to] || from === to) throw new HttpError(422, 'Pick two different group members');
   if (!amount || amount <= 0) throw new HttpError(422, 'Enter an amount');
   if (!date) throw new HttpError(422, 'Invalid date');
+  // The receiver confirms money they got, unless they're the one recording it or aren't on Tally.
+  const receiver = byId[to];
+  const status = receiver.user_id && receiver.user_id !== req.user.id ? 'pending' : 'confirmed';
   const info = await db.run(
-    'INSERT INTO settlements (group_id, from_member, to_member, amount, date, note) VALUES (?, ?, ?, ?, ?, ?)',
-    group.id, from, to, round2(amount), date, b.note ? String(b.note).slice(0, 200) : null
+    'INSERT INTO settlements (group_id, from_member, to_member, amount, date, note, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    group.id, from, to, round2(amount), date, b.note ? String(b.note).slice(0, 200) : null, status, req.user.id
   );
-  res.status(201).json({ id: info.lastInsertRowid });
+  res.status(201).json({ id: info.lastInsertRowid, status, awaiting: status === 'pending' ? receiver.name : null });
 });
 
+async function loadSettlement(req) {
+  const { group, me } = await loadGroupForUser(req.params.id, req.user.id);
+  const st = await db.get('SELECT * FROM settlements WHERE id = ? AND group_id = ?', req.params.sid, group.id);
+  if (!st) throw new HttpError(404, 'Payment not found');
+  return { group, me, st };
+}
+
+router.post('/:id/settlements/:sid/confirm', async (req, res) => {
+  const { me, st } = await loadSettlement(req);
+  if (st.to_member !== me.id) throw new HttpError(403, 'Only the person who received the money can confirm it');
+  await db.run("UPDATE settlements SET status = 'confirmed' WHERE id = ?", st.id);
+  res.json({ ok: true });
+});
+
+// Delete a payment, or reject one that's awaiting your confirmation.
 router.delete('/:id/settlements/:sid', async (req, res) => {
-  const { group } = await loadGroupForUser(req.params.id, req.user.id);
-  const r = await db.run('DELETE FROM settlements WHERE id = ? AND group_id = ?', req.params.sid, group.id);
-  if (!r.changes) throw new HttpError(404, 'Settlement not found');
+  const { group, me, st } = await loadSettlement(req);
+  const allowed = [st.from_member, st.to_member].includes(me.id) || st.created_by === req.user.id || group.created_by === req.user.id;
+  if (!allowed) throw new HttpError(403, 'Only the people involved can remove this payment');
+  await db.run('DELETE FROM settlements WHERE id = ?', st.id);
   res.status(204).end();
 });
 
 module.exports = router;
 module.exports.userGroupBalances = userGroupBalances;
+module.exports.addMember = addMember;
 module.exports.computeShares = computeShares;
 module.exports.simplify = simplify;

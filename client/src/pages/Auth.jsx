@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, Utensils, Users, Smartphone } from 'lucide-react';
 import { api } from '../lib/api';
 import { useApp } from '../lib/store';
@@ -54,6 +54,11 @@ function AuthForm({ mode }) {
   const signup = mode === 'signup';
   const { login } = useApp();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  // Where to go after logging in (e.g. back to an invite link). Only same-site paths.
+  const rawNext = params.get('next') || '';
+  const next = rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : '/';
+  const carry = next !== '/' ? `?next=${encodeURIComponent(next)}` : '';
   const [form, setForm] = useState({ name: '', phone: '', password: '', currency: 'INR' });
   const [errors, setErrors] = useState({});
   const [error, setError] = useState('');
@@ -68,7 +73,7 @@ function AuthForm({ mode }) {
     try {
       const { token, user } = await api(signup ? '/auth/signup' : '/auth/login', { method: 'POST', body: form });
       await login(token, user);
-      navigate('/');
+      navigate(next, { replace: true });
     } catch (err) {
       setErrors(err.details || {});
       setError(err.message);
@@ -112,7 +117,7 @@ function AuthForm({ mode }) {
           {error && !Object.keys(errors).length && <div className="insight bad">{error}</div>}
           <button className="btn btn-primary btn-block" disabled={busy}>{busy ? 'One moment…' : signup ? 'Create account' : 'Log in'}</button>
           <div className="muted" style={{ textAlign: 'center' }}>
-            {signup ? <>Already have an account? <Link className="link" to="/login">Log in</Link></> : <>New to Tally? <Link className="link" to="/signup">Create an account</Link></>}
+            {signup ? <>Already have an account? <Link className="link" to={`/login${carry}`}>Log in</Link></> : <>New to Tally? <Link className="link" to={`/signup${carry}`}>Create an account</Link></>}
           </div>
         </form>
       </div>

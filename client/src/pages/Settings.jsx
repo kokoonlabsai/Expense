@@ -1,27 +1,40 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Copy, KeyRound, Plus, Smartphone, Trash2, Apple, Bot, Terminal } from 'lucide-react';
+import { Check, Copy, KeyRound, Smartphone, Trash2 } from 'lucide-react';
 import { api, API_ORIGIN } from '../lib/api';
 import { useApp } from '../lib/store';
 import { CURRENCIES, dayLabel } from '../lib/format';
-import { Field, Modal } from '../components/ui';
+import { Field } from '../components/ui';
 
-function copy(text, toast) {
-  navigator.clipboard?.writeText(text).then(() => toast('Copied to clipboard'), () => toast('Copy failed', 'error'));
+function copy(text, toast, what = 'Copied') {
+  navigator.clipboard?.writeText(text).then(() => toast(what), () => toast('Copy failed', 'error'));
+}
+
+/** The text people paste into the Shortcuts app's AI box to build the shortcut for them. */
+function shortcutPrompt(url, key, categories) {
+  return `Create a shortcut called "Log Expense" that does the following, in this order:
+
+1. Ask me for a number with the prompt "Amount?".
+2. Ask me for text with the prompt "What was it?".
+3. Let me choose from this list with the prompt "Category?": ${categories.join(', ')}.
+4. Send a POST request using "Get Contents of URL" to:
+   ${url}
+   with a header named "Authorization" whose value is exactly:
+   Bearer ${key}
+   and a JSON request body with these fields:
+   - "amount" (number): the amount from step 1
+   - "name" (text): the text from step 2
+   - "category" (text): the item chosen in step 3
+   - "date" (text): the current date formatted as ISO 8601
+5. From the response, get the dictionary value for the key "message".
+6. Show a notification with that message.`;
 }
 
 export default function Settings() {
-  const { user, setUser, toast, refresh, logout, categories } = useApp();
+  const { user, setUser, toast, refresh, logout } = useApp();
   const navigate = useNavigate();
   const [profile, setProfile] = useState({ name: user.name, currency: user.currency });
   const [pw, setPw] = useState({ current_password: '', new_password: '' });
-  const [keys, setKeys] = useState([]);
-  const [newKey, setNewKey] = useState(null);
-  const [lastKey, setLastKey] = useState(null); // keep the fresh key in the examples for this visit
-  const [tab, setTab] = useState('ios');
-
-  const loadKeys = () => api('/auth/keys').then((r) => setKeys(r.keys));
-  useEffect(() => { loadKeys(); }, []);
 
   async function saveProfile(e) {
     e.preventDefault();
@@ -40,39 +53,12 @@ export default function Settings() {
       toast('Password updated');
     } catch (err) { toast(err.message, 'error'); }
   }
-  async function createKey() {
-    const label = prompt('Name this key (e.g. "iPhone Shortcut")', 'iPhone Shortcut');
-    if (label === null) return;
-    const k = await api('/auth/keys', { method: 'POST', body: { label } });
-    setNewKey(k);
-    setLastKey(k.key);
-    loadKeys();
-  }
-  async function revoke(k) {
-    if (!confirm(`Revoke "${k.label}"? Automations using it will stop working.`)) return;
-    await api(`/auth/keys/${k.id}`, { method: 'DELETE' });
-    loadKeys();
-    toast('Key revoked');
-  }
   async function deleteAccount() {
     if (prompt('This permanently deletes your account and data. Type DELETE to confirm.') !== 'DELETE') return;
     await api('/auth/me', { method: 'DELETE' });
     logout();
     navigate('/signup');
   }
-
-  const origin = API_ORIGIN || window.location.origin;
-  const keyText = lastKey || 'tly_YOUR_API_KEY';
-  const catList = categories.map((c) => c.slug).join(', ');
-  const curl = `curl -X POST ${origin}/api/v1/transactions \\
-  -H "Authorization: Bearer ${keyText}" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "amount": 450,
-    "date": "2026-10-12",
-    "name": "Blue Tokai Coffee",
-    "category": "food"
-  }'`;
 
   return (
     <div className="page">
@@ -84,90 +70,7 @@ export default function Settings() {
       </div>
 
       <div className="stack" style={{ gap: 18 }}>
-        <div className="card">
-          <div className="card-head">
-            <div className="row">
-              <span className="dot-ic" style={{ background: 'var(--grad)', color: '#fff', width: 34, height: 34, borderRadius: 11 }}><Smartphone size={17} /></span>
-              <div><h3 className="card-title">Phone automation API</h3><div className="card-sub">Log expenses from iPhone Shortcuts, Android Tasker / MacroDroid, bank SMS rules — anything that can send an HTTP request.</div></div>
-            </div>
-            <button className="btn btn-primary btn-sm" onClick={createKey}><Plus size={14} /> New key</button>
-          </div>
-
-          {keys.length ? (
-            <table className="table" style={{ marginBottom: 18 }}>
-              <thead><tr><th>Key</th><th className="hide-sm">Created</th><th>Last used</th><th /></tr></thead>
-              <tbody>
-                {keys.map((k) => (
-                  <tr key={k.id}>
-                    <td><div style={{ fontWeight: 600 }}>{k.label}</div><code className="muted" style={{ fontSize: 12 }}>{k.prefix}…</code></td>
-                    <td className="hide-sm muted">{dayLabel(k.created_at.slice(0, 10))}</td>
-                    <td className="muted">{k.last_used_at ? dayLabel(k.last_used_at.slice(0, 10)) : 'Never'}</td>
-                    <td style={{ textAlign: 'right' }}><button className="btn btn-ghost btn-sm btn-danger" onClick={() => revoke(k)}><Trash2 size={14} /> Revoke</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="insight info" style={{ marginBottom: 18 }}><KeyRound size={16} /> Create an API key to connect your first automation.</div>
-          )}
-
-          <div className="grid g-2" style={{ gap: 18, alignItems: 'start' }}>
-            <div className="stack" style={{ gap: 10 }}>
-              <div className="eyebrow">Request format</div>
-              <div style={{ fontSize: 13.5 }}>
-                <b>POST</b> <code>{origin}/api/v1/transactions</code>
-              </div>
-              <table className="table" style={{ fontSize: 13 }}>
-                <tbody>
-                  <tr><td><code>amount</code></td><td className="muted">Required. <code>450</code>, <code>"₹1,250.50"</code></td></tr>
-                  <tr><td><code>name</code></td><td className="muted">Required. Merchant or description</td></tr>
-                  <tr><td><code>category</code></td><td className="muted">Slug or name, case-insensitive. Unknown → <code>other</code></td></tr>
-                  <tr><td><code>date</code></td><td className="muted">Optional, defaults to today. <code>2026-10-12</code>, <code>12/10/2026</code>, <code>12 Oct 2026</code></td></tr>
-                  <tr><td><code>type</code></td><td className="muted">Optional. <code>expense</code> (default) or <code>income</code></td></tr>
-                  <tr><td><code>note</code>, <code>person</code></td><td className="muted">Optional. <code>person</code> = who you lent to</td></tr>
-                </tbody>
-              </table>
-              <div className="muted" style={{ fontSize: 12.5 }}>
-                Auth header: <code>Authorization: Bearer tly_…</code> or <code>X-API-Key: tly_…</code>. Send an array (or <code>{'{"transactions": [...]}'}</code>) to add up to 200 at once.
-                Also: <code>GET /api/v1/summary</code> (this month's total), <code>GET /api/v1/categories</code>.
-              </div>
-              <div className="muted" style={{ fontSize: 12.5 }}>Your categories: <code style={{ whiteSpace: 'normal' }}>{catList}</code></div>
-            </div>
-
-            <div className="stack" style={{ gap: 10 }}>
-              <div className="seg" style={{ alignSelf: 'flex-start' }}>
-                <button className={tab === 'ios' ? 'on' : ''} onClick={() => setTab('ios')}><Apple size={13} style={{ verticalAlign: -2 }} /> iPhone</button>
-                <button className={tab === 'android' ? 'on' : ''} onClick={() => setTab('android')}><Bot size={13} style={{ verticalAlign: -2 }} /> Android</button>
-                <button className={tab === 'curl' ? 'on' : ''} onClick={() => setTab('curl')}><Terminal size={13} style={{ verticalAlign: -2 }} /> cURL</button>
-              </div>
-              {tab === 'ios' && (
-                <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.75 }}>
-                  <li>Open <b>Shortcuts</b> → <b>+</b> new shortcut.</li>
-                  <li>Add <b>Ask for Input</b> (Number) → “Amount”, another for “Name”, and <b>Choose from Menu</b> for category (bills, shopping, food…).</li>
-                  <li>Add <b>Get Contents of URL</b> with URL <code>{origin}/api/v1/transactions</code>.</li>
-                  <li>Method <b>POST</b>; add header <code>Authorization</code> = <code>Bearer {keyText.slice(0, 14)}…</code></li>
-                  <li>Request Body <b>JSON</b>: <code>amount</code>, <code>name</code>, <code>category</code>, and <code>date</code> (Current Date, format ISO 8601).</li>
-                  <li>Optional: <b>Show Notification</b> with the response’s <code>message</code>. Tip: trigger it from a <b>Wallet / Transaction</b> automation to log Apple Pay taps automatically.</li>
-                </ol>
-              )}
-              {tab === 'android' && (
-                <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.75 }}>
-                  <li>Install <b>HTTP Shortcuts</b>, <b>MacroDroid</b> or <b>Tasker</b>.</li>
-                  <li>Create an <b>HTTP Request</b> action: POST to <code>{origin}/api/v1/transactions</code>.</li>
-                  <li>Header <code>Authorization: Bearer {keyText.slice(0, 14)}…</code>, content type <code>application/json</code>.</li>
-                  <li>Body: <code>{'{"amount": "%amount", "name": "%name", "category": "%cat", "date": "%date"}'}</code></li>
-                  <li>Trigger it from a home-screen button, or from a <b>Notification / SMS received</b> trigger that extracts the amount from your bank alert.</li>
-                </ol>
-              )}
-              {tab === 'curl' && (
-                <>
-                  <div className="code">{curl}</div>
-                  <button className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => copy(curl, toast)}><Copy size={14} /> Copy</button>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
+        <PhoneShortcut />
 
         <div className="grid g-2">
           <form className="card stack" onSubmit={saveProfile}>
@@ -195,19 +98,115 @@ export default function Settings() {
           </form>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {newKey && (
-        <Modal title="Your new API key" onClose={() => setNewKey(null)}>
-          <div className="stack">
-            <div className="insight warn">Copy it now — for your security it won't be shown again.</div>
-            <div className="code" style={{ whiteSpace: 'normal', wordBreak: 'break-all' }}>{newKey.key}</div>
-            <div className="row" style={{ justifyContent: 'flex-end' }}>
-              <button className="btn" onClick={() => copy(newKey.key, toast)}><Copy size={14} /> Copy key</button>
-              <button className="btn btn-primary" onClick={() => setNewKey(null)}>Done</button>
-            </div>
+function PhoneShortcut() {
+  const { toast, categories } = useApp();
+  const [keys, setKeys] = useState([]);
+  const [fresh, setFresh] = useState(null); // the key we just created — only shown once
+  const [copied, setCopied] = useState(false);
+
+  const loadKeys = () => api('/auth/keys').then((r) => setKeys(r.keys)).catch(() => {});
+  useEffect(() => { loadKeys(); }, []);
+
+  const url = `${API_ORIGIN || window.location.origin}/api/v1/transactions`;
+  const key = fresh || 'YOUR_KEY';
+  const slugs = categories.filter((c) => c.slug !== 'income').map((c) => c.slug);
+
+  async function createKey() {
+    try {
+      const k = await api('/auth/keys', { method: 'POST', body: { label: `iPhone · ${new Date().toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}` } });
+      setFresh(k.key);
+      loadKeys();
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  async function revoke(k) {
+    if (!confirm(`Disconnect "${k.label}"? Shortcuts using it will stop working.`)) return;
+    await api(`/auth/keys/${k.id}`, { method: 'DELETE' });
+    loadKeys();
+    toast('Key removed');
+  }
+  function copyPrompt() {
+    copy(shortcutPrompt(url, key, slugs), toast, 'Prompt copied — paste it in Shortcuts');
+    setCopied(true);
+  }
+
+  return (
+    <div className="card">
+      <div className="row" style={{ alignItems: 'flex-start', marginBottom: 14 }}>
+        <span className="dot-ic" style={{ background: 'var(--grad)', color: '#fff', width: 38, height: 38, borderRadius: 12 }}><Smartphone size={18} /></span>
+        <div>
+          <h3 className="card-title" style={{ fontSize: 16 }}>Log expenses from your iPhone</h3>
+          <div className="card-sub">Add an expense in seconds with Siri, a home-screen button, or a double-tap on the back of your phone.</div>
+        </div>
+      </div>
+
+      <div className="steps">
+        <div className="step">
+          <span className={`step-num ${fresh ? 'done' : ''}`}>{fresh ? <Check size={15} /> : 1}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h4>Create your key</h4>
+            <p>It's a password just for the shortcut. You'll only see it once.</p>
+            {fresh ? (
+              <div className="row" style={{ gap: 8 }}>
+                <code className="input" style={{ display: 'flex', alignItems: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5 }}>{fresh}</code>
+                <button className="btn" onClick={() => copy(fresh, toast, 'Key copied')}><Copy size={14} /> Copy</button>
+              </div>
+            ) : (
+              <button className="btn btn-primary" onClick={createKey}><KeyRound size={15} /> Create key</button>
+            )}
           </div>
-        </Modal>
+        </div>
+
+        <div className="step">
+          <span className={`step-num ${copied ? 'done' : ''}`}>{copied ? <Check size={15} /> : 2}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h4>Let your iPhone build the shortcut</h4>
+            <p>Open the <b>Shortcuts</b> app, tap <b>+</b>, and paste this into the AI box. {fresh ? 'Your key is already filled in.' : 'Replace YOUR_KEY with your key.'}</p>
+            <button className="btn btn-grad" onClick={copyPrompt}><Copy size={14} /> Copy setup prompt</button>
+          </div>
+        </div>
+
+        <div className="step">
+          <span className="step-num">3</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h4>Turn on double-tap <span className="muted" style={{ fontWeight: 500 }}>(optional)</span></h4>
+            <p style={{ marginBottom: 0 }}>Settings → Accessibility → Touch → Back Tap → Double Tap → <b>Log Expense</b></p>
+          </div>
+        </div>
+      </div>
+
+      {keys.length > 0 && (
+        <>
+          <div className="divider" style={{ margin: '14px 0 6px' }} />
+          <div className="eyebrow" style={{ fontSize: 11 }}>Connected</div>
+          {keys.map((k) => (
+            <div key={k.id} className="row" style={{ padding: '8px 0', fontSize: 13.5 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <b>{k.label}</b> <span className="muted">· {k.last_used_at ? `last used ${dayLabel(k.last_used_at.slice(0, 10)).toLowerCase()}` : 'not used yet'}</span>
+              </span>
+              <button className="btn btn-ghost btn-sm btn-danger" onClick={() => revoke(k)}><Trash2 size={13} /> Remove</button>
+            </div>
+          ))}
+        </>
       )}
+
+      <div className="divider" style={{ margin: '12px 0' }} />
+      <details className="more">
+        <summary>Using Android, or building it yourself? Show details ›</summary>
+        <div className="stack" style={{ gap: 10, fontSize: 13.5 }}>
+          <div>Send a <b>POST</b> request to this address with the header <code>Authorization: Bearer {fresh ? `${fresh.slice(0, 10)}…` : 'YOUR_KEY'}</code>:</div>
+          <div className="row" style={{ gap: 8 }}>
+            <code className="input" style={{ display: 'flex', alignItems: 'center', overflow: 'hidden', whiteSpace: 'nowrap', fontSize: 12.5 }}>{url}</code>
+            <button className="btn" onClick={() => copy(url, toast, 'Address copied')}><Copy size={14} /></button>
+          </div>
+          <div>Body (JSON): <code>{'{"amount": 120, "name": "Coffee", "category": "food"}'}</code>. The date is optional and defaults to today.</div>
+          <div className="muted" style={{ fontSize: 12.5 }}>Categories: {slugs.join(', ')}</div>
+          <div className="muted" style={{ fontSize: 12.5 }}>On Android, apps like <b>HTTP Shortcuts</b> or <b>MacroDroid</b> can send this from a home-screen button.</div>
+        </div>
+      </details>
     </div>
   );
 }

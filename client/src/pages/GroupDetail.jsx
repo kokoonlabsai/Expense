@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, ChevronLeft, HandCoins, Plus, Receipt, Trash2, UserPlus, Settings2 } from 'lucide-react';
+import { ArrowRight, ChevronLeft, HandCoins, Plus, Receipt, Trash2, UserPlus, Settings2, Share2, Check, X, Clock, BellRing } from 'lucide-react';
 import { api } from '../lib/api';
 import { useApp } from '../lib/store';
 import { currencySymbol, dayLabel, money, todayISO } from '../lib/format';
 import { Avatar, CatIcon, Empty, Field, Modal } from '../components/ui';
 import { EMOJIS } from './Groups';
+import PeoplePicker from '../components/PeoplePicker';
+import { inviteUrl, share } from '../lib/share';
 
 export default function GroupDetail() {
   const { id } = useParams();
@@ -41,10 +43,41 @@ export default function GroupDetail() {
     done('Expense deleted');
   }
   async function delSettle(s) {
-    if (!confirm('Delete this settlement?')) return;
-    await api(`/groups/${id}/settlements/${s.id}`, { method: 'DELETE' });
-    done('Settlement removed');
+    if (!confirm('Remove this payment?')) return;
+    try {
+      await api(`/groups/${id}/settlements/${s.id}`, { method: 'DELETE' });
+      done('Payment removed');
+    } catch (err) { toast(err.message, 'error'); }
   }
+  async function confirmSettle(s) {
+    await api(`/groups/${id}/settlements/${s.id}/confirm`, { method: 'POST' });
+    done(`Confirmed — ${money(s.amount, currency)} from ${name(s.from_member)}`);
+  }
+  async function rejectSettle(s) {
+    if (!confirm(`Mark this as not received? ${name(s.from_member)}'s payment will be removed.`)) return;
+    await api(`/groups/${id}/settlements/${s.id}`, { method: 'DELETE' });
+    done('Payment marked as not received');
+  }
+  async function inviteGroup() {
+    try {
+      const { token } = await api(`/groups/${id}/invite`, { method: 'POST' });
+      await share({ title: data.group.name, text: `Join "${data.group.name}" on Tally to split expenses with me:`, url: inviteUrl(token) }, toast);
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  async function inviteMember(m) {
+    try {
+      const { token } = await api(`/groups/${id}/members/${m.id}/invite`, { method: 'POST' });
+      await share({ title: data.group.name, text: `Hey ${m.name}, join "${data.group.name}" on Tally to see what we've split:`, url: inviteUrl(token) }, toast);
+    } catch (err) { toast(err.message, 'error'); }
+  }
+  function remind(d) {
+    share({ title: data.group.name, text: `Hey ${byId[d.from]?.name}, friendly reminder: you owe me ${money(d.amount, currency)} for "${data.group.name}". Details on Tally:`, url: `${window.location.origin}/splits/${id}` }, toast);
+  }
+
+  const toConfirm = data.settlements.filter((s) => s.status === 'pending' && s.to_member === data.me);
+  const sentBetween = (from, to) =>
+    data.settlements.filter((s) => s.status === 'pending' && s.from_member === from && s.to_member === to).reduce((a, s) => a + s.amount, 0);
+  const notOnTally = data.members.filter((m) => !m.registered);
 
   return (
     <div className="page">
@@ -59,6 +92,7 @@ export default function GroupDetail() {
         </div>
         <div className="row row-wrap">
           <button className="btn btn-icon" onClick={() => setModal('edit')} title="Group settings"><Settings2 size={16} /></button>
+          <button className="btn" onClick={inviteGroup}><Share2 size={16} /> Invite</button>
           <button className="btn" onClick={() => setModal({ settle: {} })}><HandCoins size={16} /> Settle up</button>
           <button className="btn btn-grad" onClick={() => setModal('expense')}><Plus size={16} /> Add expense</button>
         </div>
@@ -66,6 +100,17 @@ export default function GroupDetail() {
 
       <div className="grid g-main">
         <div className="stack" style={{ gap: 18 }}>
+          {toConfirm.map((s) => (
+            <div key={s.id} className="notice" style={{ background: '#fff4e0' }}>
+              <span className="cat-ic" style={{ background: '#fff', color: '#c27d0e' }}><BellRing size={18} /></span>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <b>{name(s.from_member)} says they paid you {money(s.amount, currency)}</b>
+                <div className="muted" style={{ fontSize: 12.5 }}>{dayLabel(s.date)}{s.note ? ` · ${s.note}` : ''} · Did you receive it?</div>
+              </div>
+              <button className="btn btn-sm" onClick={() => rejectSettle(s)}><X size={14} /> Not received</button>
+              <button className="btn btn-sm btn-primary" onClick={() => confirmSettle(s)}><Check size={14} /> Confirm</button>
+            </div>
+          ))}
           <div className={`hero`} style={{ padding: 24 }}>
             <div className="label">Your position</div>
             <div className="big num" style={{ fontSize: 48 }}>
@@ -94,9 +139,16 @@ export default function GroupDetail() {
                 <span className="cat-ic" style={{ background: '#e8f8f1', color: '#0e7a59' }}><HandCoins size={19} /></span>
                 <div className="tx-main">
                   <div className="tx-name">{name(it.from_member)} paid {name(it.to_member)}</div>
-                  <div className="tx-meta"><span>Settlement</span><span className="faint">·</span><span>{dayLabel(it.date)}</span>{it.note && <><span className="faint">·</span><span>{it.note}</span></>}</div>
+                  <div className="tx-meta">
+                    <span>Payment</span><span className="faint">·</span><span>{dayLabel(it.date)}</span>{it.note && <><span className="faint">·</span><span>{it.note}</span></>}
+                    {it.status === 'pending' && (
+                      <span className="badge" style={{ background: '#fff4e0', color: '#9a5b00' }}>
+                        <Clock size={11} /> {it.to_member === data.me ? 'Needs your OK' : `Waiting for ${byId[it.to_member]?.name}`}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <b className="num pos">{money(it.amount, currency)}</b>
+                <b className={`num ${it.status === 'pending' ? 'muted' : 'pos'}`}>{money(it.amount, currency)}</b>
                 <button className="btn btn-ghost btn-icon btn-sm" onClick={() => delSettle(it)} aria-label="Delete"><Trash2 size={14} /></button>
               </div>
             )) : (
@@ -116,8 +168,18 @@ export default function GroupDetail() {
                 <div style={{ flex: 1, minWidth: 0, fontSize: 13.5 }}>
                   <b>{name(d.from)}</b> <span className="muted">{d.from === data.me ? 'owe' : 'owes'}</span> <b>{name(d.to)}</b>
                   <div className="num" style={{ fontWeight: 700 }}>{money(d.amount, currency)}</div>
+                  {sentBetween(d.from, d.to) > 0 && (
+                    <div className="badge" style={{ background: '#fff4e0', color: '#9a5b00', marginTop: 4 }}>
+                      <Clock size={11} /> {money(sentBetween(d.from, d.to), currency)} paid · waiting for {d.to === data.me ? 'your' : `${byId[d.to]?.name}'s`} OK
+                    </div>
+                  )}
                 </div>
-                <button className="btn btn-sm" onClick={() => setModal({ settle: { from_member: d.from, to_member: d.to, amount: d.amount } })}>Record</button>
+                {d.to === data.me && byId[d.from]?.registered && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => remind(d)} title="Send a reminder"><BellRing size={14} /></button>
+                )}
+                <button className="btn btn-sm" onClick={() => setModal({ settle: { from_member: d.from, to_member: d.to, amount: d.amount } })}>
+                  {d.from === data.me ? 'I paid' : d.to === data.me ? 'Got it' : 'Record'}
+                </button>
               </div>
             )) : <div className="insight good">Everyone is settled up. 🎉</div>}
           </div>
@@ -127,13 +189,19 @@ export default function GroupDetail() {
               <h3 className="card-title">Members</h3>
               <button className="btn btn-sm" onClick={() => setModal('member')}><UserPlus size={14} /> Add</button>
             </div>
+            {notOnTally.length > 0 && (
+              <div className="insight info" style={{ marginBottom: 8, fontSize: 12.5 }}>
+                Send {notOnTally.length === 1 ? notOnTally[0].name : `${notOnTally.length} people`} an invite link so they can see what they owe and settle up.
+              </div>
+            )}
             {data.members.map((m) => (
               <div key={m.id} className="row" style={{ padding: '8px 0' }}>
                 <Avatar name={m.name} size="sm" />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600 }}>{m.is_me ? `${m.name} (you)` : m.name}</div>
-                  <div className="muted" style={{ fontSize: 12 }}>{m.registered ? 'On Tally' : m.phone || 'Not on Tally'}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{m.registered ? 'On Tally' : 'Not on Tally yet'}</div>
                 </div>
+                {!m.registered && <button className="btn btn-sm" onClick={() => inviteMember(m)}><Share2 size={13} /> Invite</button>}
                 <span className={`num ${m.balance > 0 ? 'pos' : m.balance < 0 ? 'neg' : 'muted'}`} style={{ fontWeight: 700, fontSize: 13.5 }}>
                   {m.balance === 0 ? 'settled' : `${m.balance > 0 ? '+' : '−'}${money(Math.abs(m.balance), currency)}`}
                 </span>
@@ -144,8 +212,8 @@ export default function GroupDetail() {
       </div>
 
       {modal === 'expense' && <ExpenseModal data={data} onClose={() => setModal(null)} onDone={() => done('Expense added')} />}
-      {modal?.settle && <SettleModal data={data} initial={modal.settle} onClose={() => setModal(null)} onDone={() => done('Settlement recorded')} />}
-      {modal === 'member' && <MemberModal groupId={id} onClose={() => setModal(null)} onDone={() => done('Member added')} />}
+      {modal?.settle && <SettleModal data={data} initial={modal.settle} onClose={() => setModal(null)} onDone={(msg) => done(msg)} />}
+      {modal === 'member' && <MemberModal data={data} onClose={() => setModal(null)} onChanged={() => { load(); refresh(); }} />}
       {modal === 'edit' && <EditGroupModal data={data} onClose={() => setModal(null)} onDone={() => done('Group updated')} />}
     </div>
   );
@@ -287,8 +355,8 @@ function SettleModal({ data, initial, onClose, onDone }) {
   async function submit(e) {
     e.preventDefault();
     try {
-      await api(`/groups/${data.group.id}/settlements`, { method: 'POST', body: form });
-      onDone();
+      const r = await api(`/groups/${data.group.id}/settlements`, { method: 'POST', body: form });
+      onDone(r.status === 'pending' ? `Sent to ${r.awaiting} to confirm` : 'Payment recorded');
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -326,30 +394,61 @@ function SettleModal({ data, initial, onClose, onDone }) {
   );
 }
 
-function MemberModal({ groupId, onClose, onDone }) {
+function MemberModal({ data, onClose, onChanged }) {
   const { toast } = useApp();
-  const [form, setForm] = useState({ name: '', phone: '' });
-  async function submit(e) {
-    e.preventDefault();
+  const [added, setAdded] = useState(null); // { name, registered, invite_token }
+  const [busy, setBusy] = useState(false);
+
+  async function add(p) {
+    setBusy(true);
     try {
-      await api(`/groups/${groupId}/members`, { method: 'POST', body: form });
-      onDone();
+      const { member } = await api(`/groups/${data.group.id}/members`, { method: 'POST', body: { user_id: p.user_id, phone: p.phone, name: p.name } });
+      onChanged();
+      if (member.registered) {
+        toast(`${member.name} added — they can see the group now`);
+        onClose();
+      } else {
+        setAdded(member);
+      }
     } catch (err) {
       toast(err.message, 'error');
+    } finally {
+      setBusy(false);
     }
   }
+
+  if (added) {
+    const url = inviteUrl(added.invite_token);
+    return (
+      <Modal title="Send the invite" onClose={onClose}>
+        <div className="stack">
+          <div className="notice">
+            <Avatar name={added.name} />
+            <div style={{ flex: 1 }}>
+              <b>{added.name} isn't on Tally yet</b>
+              <div className="muted" style={{ fontSize: 13 }}>Send them this link. They'll create an account (or log in) and land straight in "{data.group.name}".</div>
+            </div>
+          </div>
+          <div className="code" style={{ whiteSpace: 'normal', wordBreak: 'break-all', fontSize: 12 }}>{url}</div>
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn" onClick={onClose}>Later</button>
+            <button className="btn btn-primary" onClick={() => share({ title: data.group.name, text: `Hey ${added.name}, join "${data.group.name}" on Tally to see what we've split:`, url }, toast)}>
+              <Share2 size={15} /> Share link
+            </button>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal title="Add a person" onClose={onClose}>
-      <form className="stack" onSubmit={submit}>
-        <Field label="Name"><input className="input" autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-        <Field label="Phone" hint="Optional — if they're on Tally, the group appears in their account.">
-          <input className="input" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-        </Field>
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" disabled={!form.name && !form.phone}>Add</button>
+      <div className="stack" style={{ opacity: busy ? 0.6 : 1 }}>
+        <PeoplePicker autoFocus onPick={add} exclude={data.members.map((m) => m.user_id).filter(Boolean)} />
+        <div className="muted" style={{ fontSize: 12.5 }}>
+          Friends on Tally see the group instantly. Anyone else gets an invite link to join.
         </div>
-      </form>
+      </div>
     </Modal>
   );
 }

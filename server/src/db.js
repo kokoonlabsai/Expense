@@ -162,7 +162,25 @@ CREATE TABLE IF NOT EXISTS settlements (
 );
 `;
 
-const ready = client.executeMultiple(SCHEMA);
+/** Create tables, then add columns introduced after the first release (safe to run on every start). */
+async function migrate() {
+  await client.executeMultiple(SCHEMA);
+  const addColumn = async (table, column, definition) => {
+    const cols = toObjects(await client.execute(`PRAGMA table_info(${table})`));
+    if (!cols.some((c) => c.name === column)) await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  };
+  await addColumn('groups', 'invite_token', 'TEXT');
+  await addColumn('group_members', 'invite_token', 'TEXT');
+  // Payments recorded by the payer wait for the receiver to confirm them.
+  await addColumn('settlements', 'status', "TEXT NOT NULL DEFAULT 'confirmed'");
+  await addColumn('settlements', 'created_by', 'INTEGER');
+  await client.executeMultiple(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_invite ON groups(invite_token);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_members_invite ON group_members(invite_token);
+  `);
+}
+
+const ready = migrate();
 
 const DEFAULT_CATEGORIES = [
   { slug: 'food', name: 'Food & Dining', color: '#FF7A59', icon: 'utensils' },
