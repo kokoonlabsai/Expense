@@ -11,6 +11,7 @@ import { useApp } from '../lib/store';
 import { dayLabel, money, monthLabel, monthShort, shiftMonth, shortDate, thisMonth, tint } from '../lib/format';
 import { TxRow } from '../components/TransactionModal';
 import { CatIcon, Empty, Money } from '../components/ui';
+import AppNudge from '../components/AppNudge';
 
 function greeting() {
   const h = new Date().getHours();
@@ -52,6 +53,7 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <AppNudge />
       {!data ? <Skeleton /> : (
         <div className="stack" style={{ gap: 18 }}>
           <div className="grid g-main">
@@ -74,7 +76,7 @@ export default function Dashboard() {
                 <div style={{ marginTop: 22 }}>
                   <div className="row" style={{ justifyContent: 'space-between', fontSize: 13, marginBottom: 8 }}>
                     <span style={{ color: 'rgba(255,255,255,.75)' }}>Monthly budget</span>
-                    <span><b>{money(Math.max(0, t.budget - t.spent), currency)}</b> <span style={{ color: 'rgba(255,255,255,.6)' }}>{t.spent > t.budget ? 'over' : 'left'} of {money(t.budget, currency)}</span></span>
+                    <span><b>{money(Math.abs(t.budget - t.spent), currency)}</b> <span style={{ color: 'rgba(255,255,255,.6)' }}>{t.spent > t.budget ? 'over' : 'left'} of {money(t.budget, currency)}</span></span>
                   </div>
                   <div className="progress" style={{ background: 'rgba(255,255,255,.14)' }}>
                     <div style={{ width: `${Math.min(100, (t.spent / t.budget) * 100)}%`, background: t.spent > t.budget ? '#FF6B6B' : 'linear-gradient(90deg,#FFB49E,#FF8A4C)' }} />

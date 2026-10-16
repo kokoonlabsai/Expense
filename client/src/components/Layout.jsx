@@ -1,9 +1,10 @@
 import { Suspense, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate, useSearchParams } from 'react-router-dom';
 import { LayoutDashboard, ArrowLeftRight, Users, PiggyBank, Settings, Plus, LogOut } from 'lucide-react';
 import { useApp } from '../lib/store';
 import TransactionModal from './TransactionModal';
 import { Avatar } from './ui';
+import { disablePush, syncPush } from '../lib/pwa';
 
 const NAV = [
   { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
@@ -24,8 +25,35 @@ export function BrandMark({ size = 34 }) {
 }
 
 export default function Layout() {
-  const { user, logout, txModal, openTx } = useApp();
+  const { user, logout, txModal, openTx, refresh } = useApp();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+
+  // Home-screen shortcut "Add expense" opens /?add=1
+  useEffect(() => {
+    if (params.get('add')) {
+      openTx();
+      setParams({}, { replace: true });
+    }
+  }, [params, setParams, openTx]);
+
+  // Notifications: keep this device registered, follow taps, refresh numbers when one arrives.
+  useEffect(() => {
+    syncPush();
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (e) => {
+      if (e.data?.type === 'navigate') navigate(e.data.url);
+      if (e.data?.type === 'push') refresh();
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [navigate, refresh]);
+
+  const signOut = async () => {
+    await disablePush();
+    logout();
+    navigate('/login');
+  };
 
   useEffect(() => {
     const onKey = (e) => {
@@ -55,7 +83,7 @@ export default function Layout() {
               <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.name}</div>
               <div className="muted" style={{ fontSize: 12 }}>{user?.phone}</div>
             </div>
-            <button className="btn btn-ghost btn-icon" title="Log out" onClick={() => { logout(); navigate('/login'); }}>
+            <button className="btn btn-ghost btn-icon" title="Log out" onClick={signOut}>
               <LogOut size={16} />
             </button>
           </div>

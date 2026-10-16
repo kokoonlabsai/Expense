@@ -5,6 +5,8 @@ import { api, API_ORIGIN } from '../lib/api';
 import { useApp } from '../lib/store';
 import { CURRENCIES, dayLabel } from '../lib/format';
 import { Field } from '../components/ui';
+import AppCard from '../components/AppCard';
+import { disablePush } from '../lib/pwa';
 
 function copy(text, toast, what = 'Copied') {
   navigator.clipboard?.writeText(text).then(() => toast(what), () => toast('Copy failed', 'error'));
@@ -70,6 +72,7 @@ export default function Settings() {
       </div>
 
       <div className="stack" style={{ gap: 18 }}>
+        <AppCard />
         <PhoneShortcut />
 
         <div className="grid g-2">
@@ -91,7 +94,7 @@ export default function Settings() {
             <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} disabled={!pw.current_password || !pw.new_password}>Update password</button>
             <div className="divider" style={{ margin: '6px 0' }} />
             <div className="row">
-              <button type="button" className="btn" onClick={() => { logout(); navigate('/login'); }}>Log out</button>
+              <button type="button" className="btn" onClick={async () => { await disablePush(); logout(); navigate('/login'); }}>Log out</button>
               <div className="spacer" />
               <button type="button" className="btn btn-ghost btn-danger" onClick={deleteAccount}>Delete account</button>
             </div>

@@ -6,6 +6,7 @@ const express = require('express');
 const { db } = require('../db');
 const { HttpError, requireAuth, today } = require('../util');
 const { loadCategories, normalizeTransaction, insertTransaction } = require('../transactions');
+const { afterExpenses } = require('../budgets');
 
 const router = express.Router();
 router.use(requireAuth({ allowApiKey: true }));
@@ -18,6 +19,12 @@ router.get('/categories', async (req, res) => {
 });
 
 async function createMany(req, payloads) {
+  const results = await insertMany(req, payloads);
+  afterExpenses(req.user, results.map((r) => r.transaction));
+  return results;
+}
+
+async function insertMany(req, payloads) {
   if (payloads.length > 200) throw new HttpError(413, 'Send at most 200 transactions per request');
   // Validate everything first so a batch is all-or-nothing.
   const cats = await loadCategories(req.user.id);

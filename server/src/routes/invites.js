@@ -6,6 +6,7 @@
 const express = require('express');
 const { db } = require('../db');
 const { HttpError, requireAuth } = require('../util');
+const { notify } = require('../push');
 
 const router = express.Router();
 
@@ -48,6 +49,15 @@ router.post('/:token/accept', requireAuth(), async (req, res) => {
       inv.groupId, req.user.name, req.user.phone, req.user.id
     );
   }
+  // Let the people who are already in the group know.
+  const group = await db.get('SELECT name, emoji FROM groups WHERE id = ?', inv.groupId);
+  const others = await db.all('SELECT user_id FROM group_members WHERE group_id = ? AND user_id IS NOT NULL AND user_id != ?', inv.groupId, req.user.id);
+  notify(others.map((o) => o.user_id), {
+    title: `${group.emoji} ${group.name}`,
+    body: `${req.user.name} joined the group`,
+    url: `/splits/${inv.groupId}`,
+    tag: `group-${inv.groupId}`,
+  });
   res.json({ group_id: inv.groupId });
 });
 

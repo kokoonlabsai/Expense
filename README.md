@@ -21,6 +21,17 @@
   - see each person's balance, with debts simplified to the fewest payments
   - settle up with confirmation. When someone records "I paid you", the receiver confirms it before balances change. There's also a one-tap reminder for people who owe you.
   - optionally copy your own share into your personal transactions
+- **Installable app (PWA)**: add Tally to your home screen on iPhone or Android, or install it on desktop. It opens full-screen, loads instantly, keeps you signed in offline, and has a long-press "Add expense" shortcut on the icon.
+- **Push notifications**: turn them on under **Settings → App & notifications**. You're notified when:
+  - someone adds you to a group
+  - someone adds an expense you're part of
+  - a friend says they paid you (tap to confirm)
+  - your payment is confirmed or rejected
+  - someone joins your group
+  - someone sends you a reminder
+  - you go over a budget
+
+  On iPhone, notifications need iOS 16.4 or later, and Tally must be opened from the Home Screen.
 - **Lending tracker**: add a person to a Lending transaction, then mark it as returned from the dashboard.
 - **Budgets and categories**: set an overall monthly budget and per-category budgets. Add custom categories with your own colour and icon.
 - **Settings**: change your currency (INR, USD, EUR, GBP, AED, SGD, AUD, CAD, JPY) or password, manage API keys, and delete your account.
@@ -73,6 +84,8 @@ The tables are created automatically on first start.
 | `TURSO_DATABASE_URL` | — | Turso database URL. If unset, a local SQLite file is used |
 | `TURSO_AUTH_TOKEN` | — | Turso auth token |
 | `TZ` | `UTC` on most hosts | Your time zone, e.g. `Asia/Kolkata`. Decides what "today" and "this month" mean for API entries without a date |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | generated | Push notification keys. If unset, a pair is generated once and stored in the database, so you can leave these alone |
+| `VAPID_SUBJECT` | `mailto:notifications@tally.app` | Contact address sent to push services. Set it to `mailto:you@yourdomain.com` |
 | `CORS_ORIGIN` | allow all | Comma-separated frontend URLs (only needed when the frontend is on another domain) |
 | `PORT` | `4000` (`8080` in Docker) | |
 | `DB_PATH` | `server/data/tally.db` | Local SQLite file when not using Turso |

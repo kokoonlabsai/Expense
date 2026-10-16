@@ -1,12 +1,16 @@
 const express = require('express');
 const { db } = require('../db');
 const crypto = require('crypto');
-const { HttpError, requireAuth, normalizePhone, parseDate, parseAmount, round2 } = require('../util');
+const { HttpError, requireAuth, normalizePhone, parseDate, parseAmount, round2, formatMoney } = require('../util');
+const { notify, sendTo } = require('../push');
 const { insertTransaction, resolveCategory } = require('../transactions');
 const { deleteGroup } = require('../cleanup');
 
 const router = express.Router();
 router.use(requireAuth());
+
+const groupUrl = (id) => `/splits/${id}`;
+const firstName = (name) => String(name || '').split(' ')[0];
 
 // ---------- helpers ----------
 
@@ -243,6 +247,7 @@ router.post('/', async (req, res) => {
   if (!name) throw new HttpError(422, 'Give your group a name', { name: 'Required' });
   const emoji = String(req.body?.emoji || '✨').slice(0, 8);
   const members = Array.isArray(req.body?.members) ? req.body.members : [];
+  const added = [];
   const id = await db.tx(async (t) => {
     const info = await t.run('INSERT INTO groups (name, emoji, created_by) VALUES (?, ?, ?)', name.slice(0, 60), emoji, req.user.id);
     const gid = info.lastInsertRowid;
@@ -250,9 +255,16 @@ router.post('/', async (req, res) => {
     for (const m of members) {
       if (!m || (!m.name && !m.phone && !m.user_id)) continue;
       if (Number(m.user_id) === req.user.id || (m.phone && normalizePhone(m.phone) === req.user.phone)) continue;
-      await addMember(gid, m, req.user.id, t);
+      const member = await addMember(gid, m, req.user.id, t);
+      if (member.user_id) added.push(member.user_id);
     }
     return gid;
+  });
+  notify(added, {
+    title: `${emoji} ${name}`,
+    body: `${req.user.name} added you to the group`,
+    url: groupUrl(id),
+    tag: `group-${id}`,
   });
   res.status(201).json({ id });
 });
@@ -306,6 +318,9 @@ router.delete('/:id', async (req, res) => {
 router.post('/:id/members', async (req, res) => {
   const { group } = await loadGroupForUser(req.params.id, req.user.id);
   const m = await addMember(group.id, req.body || {}, req.user.id);
+  if (m.user_id) {
+    notify([m.user_id], { title: `${group.emoji} ${group.name}`, body: `${req.user.name} added you to the group`, url: groupUrl(group.id), tag: `group-${group.id}` });
+  }
   res.status(201).json({ member: { id: m.id, name: m.name, registered: !!m.user_id, invite_token: m.invite_token } });
 });
 
@@ -400,6 +415,22 @@ router.post('/:id/expenses', async (req, res) => {
     }
     return info.lastInsertRowid;
   });
+  // Tell everyone with a share (except whoever added it) what they owe for this.
+  const linked = await db.all('SELECT id, user_id FROM group_members WHERE group_id = ? AND user_id IS NOT NULL', group.id);
+  const payer = await db.get('SELECT name, user_id FROM group_members WHERE id = ?', paidBy);
+  for (const m of linked) {
+    const share = shares.find((sh) => sh.member_id === m.id)?.amount || 0;
+    if (m.user_id === req.user.id || (share <= 0 && m.id !== paidBy)) continue;
+    const who = payer.user_id === m.user_id ? 'you' : firstName(payer.name);
+    notify([m.user_id], {
+      title: `${group.emoji} ${group.name}`,
+      body: `${firstName(req.user.name)} added "${description}" (${formatMoney(amount, req.user.currency)}, paid by ${who})${
+        share > 0 && payer.user_id !== m.user_id ? ` · your share ${formatMoney(share, req.user.currency)}` : ''
+      }`,
+      url: groupUrl(group.id),
+      tag: `group-${group.id}`,
+    });
+  }
   res.status(201).json({ id });
 });
 
@@ -434,6 +465,22 @@ router.post('/:id/settlements', async (req, res) => {
     'INSERT INTO settlements (group_id, from_member, to_member, amount, date, note, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     group.id, from, to, round2(amount), date, b.note ? String(b.note).slice(0, 200) : null, status, req.user.id
   );
+  const amt = formatMoney(amount, req.user.currency);
+  if (status === 'pending') {
+    notify([receiver.user_id], {
+      title: 'Did you get paid?',
+      body: `${req.user.name} says they paid you ${amt} in ${group.name}. Tap to confirm.`,
+      url: groupUrl(group.id),
+      tag: `settle-${info.lastInsertRowid}`,
+    });
+  } else if (byId[from].user_id && byId[from].user_id !== req.user.id) {
+    notify([byId[from].user_id], {
+      title: 'Payment recorded ✓',
+      body: `${firstName(req.user.name)} recorded your ${amt} payment in ${group.name}.`,
+      url: groupUrl(group.id),
+      tag: `settle-${info.lastInsertRowid}`,
+    });
+  }
   res.status(201).json({ id: info.lastInsertRowid, status, awaiting: status === 'pending' ? receiver.name : null });
 });
 
@@ -445,9 +492,16 @@ async function loadSettlement(req) {
 }
 
 router.post('/:id/settlements/:sid/confirm', async (req, res) => {
-  const { me, st } = await loadSettlement(req);
+  const { group, me, st } = await loadSettlement(req);
   if (st.to_member !== me.id) throw new HttpError(403, 'Only the person who received the money can confirm it');
   await db.run("UPDATE settlements SET status = 'confirmed' WHERE id = ?", st.id);
+  const payer = await db.get('SELECT user_id FROM group_members WHERE id = ?', st.from_member);
+  notify([st.created_by, payer?.user_id].filter((u) => u && u !== req.user.id), {
+    title: 'Payment confirmed ✓',
+    body: `${firstName(req.user.name)} confirmed your ${formatMoney(st.amount, req.user.currency)} payment in ${group.name}.`,
+    url: groupUrl(group.id),
+    tag: `settle-${st.id}`,
+  });
   res.json({ ok: true });
 });
 
@@ -457,7 +511,36 @@ router.delete('/:id/settlements/:sid', async (req, res) => {
   const allowed = [st.from_member, st.to_member].includes(me.id) || st.created_by === req.user.id || group.created_by === req.user.id;
   if (!allowed) throw new HttpError(403, 'Only the people involved can remove this payment');
   await db.run('DELETE FROM settlements WHERE id = ?', st.id);
+  if (st.status === 'pending' && st.to_member === me.id && st.created_by && st.created_by !== req.user.id) {
+    notify([st.created_by], {
+      title: 'Payment not received',
+      body: `${firstName(req.user.name)} says they didn't receive your ${formatMoney(st.amount, req.user.currency)} payment in ${group.name}.`,
+      url: groupUrl(group.id),
+      tag: `settle-${st.id}`,
+    });
+  }
   res.status(204).end();
+});
+
+const lastReminder = new Map();
+
+/** Nudge someone who owes you. Returns how many of their devices were notified (0 = share a message instead). */
+router.post('/:id/remind', async (req, res) => {
+  const { group, me } = await loadGroupForUser(req.params.id, req.user.id);
+  const target = await db.get('SELECT * FROM group_members WHERE id = ? AND group_id = ?', Number(req.body?.member_id), group.id);
+  if (!target || target.id === me.id) throw new HttpError(422, 'Pick someone in this group');
+  if (!target.user_id) return res.json({ sent: 0 });
+  const key = `${me.id}:${target.id}`;
+  if (Date.now() - (lastReminder.get(key) || 0) < 10 * 60_000) throw new HttpError(429, 'You just reminded them — give it a few minutes');
+  lastReminder.set(key, Date.now());
+  const amount = parseAmount(req.body?.amount);
+  const sent = await sendTo([target.user_id], {
+    title: `${group.emoji} ${group.name}`,
+    body: `${firstName(req.user.name)} sent a friendly reminder${amount ? `: you owe ${formatMoney(amount, req.user.currency)}` : ''}. Tap to settle up.`,
+    url: groupUrl(group.id),
+    tag: `remind-${group.id}`,
+  });
+  res.json({ sent });
 });
 
 module.exports = router;

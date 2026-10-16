@@ -2,6 +2,7 @@ const express = require('express');
 const { db } = require('../db');
 const { HttpError, requireAuth } = require('../util');
 const { normalizeTransaction, insertTransaction, buildFilters, SORTS, slugify } = require('../transactions');
+const { afterExpenses } = require('../budgets');
 
 const router = express.Router();
 router.use(requireAuth());
@@ -43,6 +44,7 @@ router.get('/transactions/export.csv', async (req, res) => {
 router.post('/transactions', async (req, res) => {
   const { data, warnings } = await normalizeTransaction(req.user.id, req.body || {});
   const tx = await insertTransaction(req.user.id, data, 'manual');
+  afterExpenses(req.user, [tx]);
   res.status(201).json({ transaction: tx, warnings });
 });
 

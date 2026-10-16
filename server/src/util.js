@@ -160,6 +160,18 @@ function parseAmount(input) {
 
 const round2 = (n) => Math.round(n * 100) / 100;
 
+/** "₹1,250" style amount for notification text. */
+function formatMoney(n, currency = 'INR') {
+  try {
+    const whole = Number.isInteger(Math.round(n * 100) / 100);
+    return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', {
+      style: 'currency', currency, minimumFractionDigits: whole ? 0 : 2, maximumFractionDigits: whole ? 0 : 2,
+    }).format(n);
+  } catch {
+    return String(n);
+  }
+}
+
 module.exports = {
   HttpError,
   wrap,
@@ -173,4 +185,5 @@ module.exports = {
   today,
   toISODate,
   round2,
+  formatMoney,
 };

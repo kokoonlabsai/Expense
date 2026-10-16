@@ -45,6 +45,7 @@ app.use('/api/v1', require('./routes/v1'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/groups', require('./routes/groups'));
 app.use('/api/people', require('./routes/people'));
+app.use('/api/push', require('./routes/push'));
 app.use('/api/invites', rateLimit(60, 60_000), require('./routes/invites'));
 app.use('/api', require('./routes/transactions'));
 

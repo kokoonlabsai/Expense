@@ -7,6 +7,9 @@ import Layout from './components/Layout';
 import { Toasts } from './components/ui';
 import { Login, Signup } from './pages/Auth';
 import Join from './pages/Join';
+import { registerServiceWorker } from './lib/pwa';
+
+registerServiceWorker();
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Transactions = lazy(() => import('./pages/Transactions'));
 const Groups = lazy(() => import('./pages/Groups'));

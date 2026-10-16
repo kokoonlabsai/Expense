@@ -27,6 +27,7 @@ function deleteUser(userId) {
     ['DELETE FROM transactions WHERE user_id = ?', userId],
     ['DELETE FROM categories WHERE user_id = ?', userId],
     ['DELETE FROM api_keys WHERE user_id = ?', userId],
+    ['DELETE FROM push_subscriptions WHERE user_id = ?', userId],
     ['DELETE FROM users WHERE id = ?', userId],
   ]);
 }

@@ -70,7 +70,14 @@ export default function GroupDetail() {
       await share({ title: data.group.name, text: `Hey ${m.name}, join "${data.group.name}" on Tally to see what we've split:`, url: inviteUrl(token) }, toast);
     } catch (err) { toast(err.message, 'error'); }
   }
-  function remind(d) {
+  async function remind(d) {
+    try {
+      const { sent } = await api(`/groups/${id}/remind`, { method: 'POST', body: { member_id: d.from, amount: d.amount } });
+      if (sent) return toast(`Reminder sent to ${byId[d.from]?.name}`);
+    } catch (err) {
+      return toast(err.message, 'error');
+    }
+    // They haven't turned on notifications: fall back to a message you can send yourself.
     share({ title: data.group.name, text: `Hey ${byId[d.from]?.name}, friendly reminder: you owe me ${money(d.amount, currency)} for "${data.group.name}". Details on Tally:`, url: `${window.location.origin}/splits/${id}` }, toast);
   }
 
@@ -174,7 +181,7 @@ export default function GroupDetail() {
                     </div>
                   )}
                 </div>
-                {d.to === data.me && byId[d.from]?.registered && (
+                {d.to === data.me && (
                   <button className="btn btn-ghost btn-sm" onClick={() => remind(d)} title="Send a reminder"><BellRing size={14} /></button>
                 )}
                 <button className="btn btn-sm" onClick={() => setModal({ settle: { from_member: d.from, to_member: d.to, amount: d.amount } })}>
