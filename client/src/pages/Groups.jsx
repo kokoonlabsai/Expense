@@ -6,6 +6,7 @@ import { useApp } from '../lib/store';
 import { money } from '../lib/format';
 import { Avatar, Empty, Field, Modal, Money } from '../components/ui';
 import PeoplePicker from '../components/PeoplePicker';
+import { GroupsSkeleton } from '../components/Skeletons';
 
 export const EMOJIS = ['✨', '🏖️', '🏠', '🍕', '✈️', '🎉', '🚗', '🏔️', '💼', '🎓', '🛒', '❤️'];
 
@@ -40,7 +41,7 @@ export default function Groups() {
       )}
 
       {!groups ? (
-        <div className="grid g-3">{[0, 1, 2].map((i) => <div key={i} className="skeleton" style={{ height: 170 }} />)}</div>
+        <GroupsSkeleton />
       ) : groups.length ? (
         <div className="grid g-3">
           {groups.map((g) => (

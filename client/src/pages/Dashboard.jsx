@@ -12,6 +12,7 @@ import { dayLabel, money, monthLabel, monthShort, shiftMonth, shortDate, thisMon
 import { TxRow } from '../components/TransactionModal';
 import { CatIcon, Empty, Money } from '../components/ui';
 import AppNudge from '../components/AppNudge';
+import { DashboardSkeleton } from '../components/Skeletons';
 
 function greeting() {
   const h = new Date().getHours();
@@ -54,7 +55,7 @@ export default function Dashboard() {
       </div>
 
       <AppNudge />
-      {!data ? <Skeleton /> : (
+      {!data ? <DashboardSkeleton /> : (
         <div className="stack" style={{ gap: 18 }}>
           <div className="grid g-main">
             <div className="hero">
@@ -324,15 +325,6 @@ function TrendTip({ active, payload, currency }) {
       <div className="muted">{monthLabel(m.month)}</div>
       <div>Spent <b>{money(m.spent, currency)}</b></div>
       {m.income > 0 && <div>Income <b>{money(m.income, currency)}</b></div>}
-    </div>
-  );
-}
-
-function Skeleton() {
-  return (
-    <div className="stack" style={{ gap: 18 }}>
-      <div className="grid g-main"><div className="skeleton" style={{ height: 230 }} /><div className="skeleton" style={{ height: 230 }} /></div>
-      <div className="grid g-main"><div className="skeleton" style={{ height: 320 }} /><div className="skeleton" style={{ height: 320 }} /></div>
     </div>
   );
 }

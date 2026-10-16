@@ -6,6 +6,7 @@ import { useApp } from '../lib/store';
 import { dayLabel, money, monthLabel, shiftMonth, thisMonth, toISO } from '../lib/format';
 import { TxRow } from '../components/TransactionModal';
 import { Empty } from '../components/ui';
+import { RowsSkeleton } from '../components/Skeletons';
 
 const PAGE = 100;
 
@@ -192,7 +193,7 @@ export default function Transactions() {
 
       <div className="card" style={{ padding: '6px 14px' }}>
         {loading && !items.length ? (
-          <div className="stack" style={{ padding: 10 }}>{[0, 1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 52 }} />)}</div>
+          <RowsSkeleton rows={7} />
         ) : items.length ? (
           <>
             {grouped.map((g, gi) => (

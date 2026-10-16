@@ -5,6 +5,7 @@ import { useApp } from '../lib/store';
 import TransactionModal from './TransactionModal';
 import { Avatar } from './ui';
 import { BrandMark } from './Logo';
+import { RouteSkeleton } from './Skeletons';
 import { disablePush, syncPush } from '../lib/pwa';
 
 const NAV = [
@@ -86,7 +87,7 @@ export default function Layout() {
           <div className="row" style={{ gap: 8 }}><BrandMark size={30} /><span className="brand-name" style={{ fontSize: 24 }}>Jellyfish</span></div>
           <NavLink to="/settings"><Avatar name={user?.name} size="sm" /></NavLink>
         </div>
-        <Suspense fallback={<div className="page" />}><Outlet /></Suspense>
+        <Suspense fallback={<RouteSkeleton />}><Outlet /></Suspense>
       </main>
 
       <nav className="tabbar">

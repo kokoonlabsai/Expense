@@ -7,6 +7,7 @@ import Layout from './components/Layout';
 import { Toasts } from './components/ui';
 import { Login, Signup } from './pages/Auth';
 import Join from './pages/Join';
+import { AppBootSkeleton } from './components/Skeletons';
 import { registerServiceWorker } from './lib/pwa';
 
 registerServiceWorker();
@@ -27,7 +28,7 @@ function ToLogin() {
 function Routed() {
   const { user, booting } = useApp();
   if (booting) {
-    return <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}><div className="brand-mark" style={{ animation: 'pop 1s ease infinite alternate' }} /></div>;
+    return <AppBootSkeleton />;
   }
   if (!user) {
     return (

@@ -7,6 +7,7 @@ import { currencySymbol, dayLabel, money, todayISO } from '../lib/format';
 import { Avatar, CatIcon, Empty, Field, Modal } from '../components/ui';
 import { EMOJIS } from './Groups';
 import PeoplePicker from '../components/PeoplePicker';
+import { GroupDetailSkeleton } from '../components/Skeletons';
 import { inviteUrl, share } from '../lib/share';
 
 export default function GroupDetail() {
@@ -33,7 +34,7 @@ export default function GroupDetail() {
     return items.sort((a, b) => (b.date + b.created_at).localeCompare(a.date + a.created_at));
   }, [data]);
 
-  if (!data) return <div className="page"><div className="skeleton" style={{ height: 200 }} /></div>;
+  if (!data) return <div className="page"><GroupDetailSkeleton /></div>;
   const me = byId[data.me];
   const name = (mid) => (mid === data.me ? 'You' : byId[mid]?.name || 'Someone');
 
