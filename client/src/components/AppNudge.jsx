@@ -25,7 +25,7 @@ export default function AppNudge() {
       <>
         <span className="cat-ic" style={{ background: '#fff', color: 'var(--violet)' }}><Smartphone size={18} /></span>
         <div style={{ flex: 1, minWidth: 180 }}>
-          <b>Put Tally on your Home Screen</b>
+          <b>Put Jellyfish on your Home Screen</b>
           <div className="muted" style={{ fontSize: 12.5 }}>It opens like an app and can notify you when friends pay you.</div>
         </div>
         <Link to="/settings" className="btn btn-sm btn-primary">Show me</Link>

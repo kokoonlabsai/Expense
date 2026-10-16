@@ -4,7 +4,7 @@ const { db } = require('./db');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-secret-change-me';
 if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
-  console.warn('[tally] JWT_SECRET is not set — using an insecure default. Set it in production.');
+  console.warn('[jellyfish] JWT_SECRET is not set — using an insecure default. Set it in production.');
 }
 
 class HttpError extends Error {

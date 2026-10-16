@@ -1,5 +1,5 @@
 /**
- * Web Push notifications (works on Android, desktop, and iPhone when Tally is added to the Home Screen).
+ * Web Push notifications (works on Android, desktop, and iPhone when Jellyfish is added to the Home Screen).
  * VAPID keys come from VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY, or are generated once and kept in the database.
  */
 const webpush = require('web-push');
@@ -18,7 +18,7 @@ async function vapid() {
     await db.run("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('vapid', ?)", JSON.stringify(fresh));
     ({ publicKey, privateKey } = JSON.parse((await db.get("SELECT value FROM app_settings WHERE key = 'vapid'")).value));
   }
-  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:notifications@tally.app', publicKey, privateKey);
+  webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:notifications@jellyfish.app', publicKey, privateKey);
   keys = { publicKey };
   return keys;
 }

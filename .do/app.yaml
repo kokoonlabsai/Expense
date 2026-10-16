@@ -4,7 +4,7 @@
 # Create it: DO dashboard → Apps → Create App → GitHub repo (it picks up this file),
 # or with the CLI: doctl apps create --spec .do/app.yaml
 # Then fill in the three secrets under Settings → api → Environment Variables.
-name: tally
+name: jellyfish
 region: blr
 
 static_sites:

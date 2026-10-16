@@ -1,7 +1,7 @@
 {
-  "name": "tally",
+  "name": "jellyfish",
   "private": true,
-  "description": "Tally — a premium personal expense tracker with phone-automation API and group splits",
+  "description": "Jellyfish — a premium personal expense tracker with phone-automation API and group splits",
   "scripts": {
     "postinstall": "npm --prefix server install && npm --prefix client install",
     "build": "npm --prefix client run build",

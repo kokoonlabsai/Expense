@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Users } from 'lucide-react';
 import { api } from '../lib/api';
 import { useApp } from '../lib/store';
-import { BrandMark } from '../components/Layout';
+import { BrandMark } from '../components/Logo';
 
 /** Landing page for invite links: preview the group, then sign up / log in / join. */
 export default function Join() {
@@ -36,13 +36,13 @@ export default function Join() {
     <div style={{ minHeight: '100%', display: 'grid', placeItems: 'center', padding: 20, background: 'var(--grad-soft)' }}>
       <div className="card" style={{ width: '100%', maxWidth: 420, padding: 30, textAlign: 'center', boxShadow: 'var(--shadow-lg)' }}>
         <div className="row" style={{ justifyContent: 'center', gap: 8, marginBottom: 22 }}>
-          <BrandMark size={30} /><span className="brand-name" style={{ fontSize: 24 }}>Tally</span>
+          <BrandMark size={30} /><span className="brand-name" style={{ fontSize: 24 }}>Jellyfish</span>
         </div>
         {error ? (
           <>
             <div className="serif" style={{ fontSize: 30 }}>Link not working</div>
             <p className="muted">{error}. Ask your friend to send a fresh invite.</p>
-            <Link className="btn" to="/">Go to Tally</Link>
+            <Link className="btn" to="/">Go to Jellyfish</Link>
           </>
         ) : !invite ? (
           <div className="skeleton" style={{ height: 180 }} />

@@ -5,7 +5,7 @@ import { api } from '../lib/api';
 import { useApp } from '../lib/store';
 import { CURRENCIES } from '../lib/format';
 import { Field } from '../components/ui';
-import { BrandMark } from '../components/Layout';
+import { BrandMark } from '../components/Logo';
 
 function Art() {
   return (
@@ -14,7 +14,7 @@ function Art() {
       <div className="blob" style={{ width: 360, height: 360, background: '#7C5CFF', left: -120, bottom: 40, opacity: 0.7 }} />
       <div className="blob" style={{ width: 260, height: 260, background: '#FF8A4C', right: 60, bottom: -120, opacity: 0.8 }} />
       <div className="row" style={{ position: 'relative', zIndex: 1 }}>
-        <BrandMark /><span className="brand-name" style={{ color: '#fff' }}>Tally</span>
+        <BrandMark /><span className="brand-name" style={{ color: '#fff' }}>Jellyfish</span>
       </div>
       <div style={{ position: 'relative', zIndex: 1 }}>
         <h1>Money, <em>beautifully</em> kept.</h1>
@@ -25,7 +25,7 @@ function Art() {
       <div className="stack" style={{ position: 'relative', zIndex: 1, gap: 12 }}>
         <div className="floaty"><span className="cat-ic" style={{ background: 'rgba(255,122,89,.2)', color: '#FFB49E' }}><Utensils size={18} /></span><div style={{ flex: 1 }}><b>Dinner at Toit</b><div style={{ fontSize: 12, opacity: .65 }}>Food · auto-logged</div></div><b>₹1,840</b></div>
         <div className="floaty" style={{ marginLeft: 60 }}><span className="cat-ic" style={{ background: 'rgba(124,92,255,.25)', color: '#C9BCFF' }}><Users size={18} /></span><div style={{ flex: 1 }}><b>Goa Trip</b><div style={{ fontSize: 12, opacity: .65 }}>You're owed</div></div><b style={{ color: '#7DE8C1' }}>₹4,200</b></div>
-        <div className="floaty"><span className="cat-ic" style={{ background: 'rgba(59,167,255,.22)', color: '#A9D6FF' }}><Smartphone size={18} /></span><div style={{ flex: 1 }}><b>Shortcut synced</b><div style={{ fontSize: 12, opacity: .65 }}>via Tally API</div></div></div>
+        <div className="floaty"><span className="cat-ic" style={{ background: 'rgba(59,167,255,.22)', color: '#A9D6FF' }}><Smartphone size={18} /></span><div style={{ flex: 1 }}><b>Shortcut synced</b><div style={{ fontSize: 12, opacity: .65 }}>via Jellyfish API</div></div></div>
       </div>
     </div>
   );
@@ -88,7 +88,7 @@ function AuthForm({ mode }) {
       <div className="auth-form">
         <form className="stack" onSubmit={submit} style={{ gap: 16 }}>
           <div className="mobile-top" style={{ padding: 0, marginBottom: 20 }}>
-            <div className="row" style={{ gap: 8 }}><BrandMark size={30} /><span className="brand-name" style={{ fontSize: 24 }}>Tally</span></div>
+            <div className="row" style={{ gap: 8 }}><BrandMark size={30} /><span className="brand-name" style={{ fontSize: 24 }}>Jellyfish</span></div>
           </div>
           <div>
             <div className="eyebrow">{signup ? 'Get started' : 'Welcome back'}</div>
@@ -117,7 +117,7 @@ function AuthForm({ mode }) {
           {error && !Object.keys(errors).length && <div className="insight bad">{error}</div>}
           <button className="btn btn-primary btn-block" disabled={busy}>{busy ? 'One moment…' : signup ? 'Create account' : 'Log in'}</button>
           <div className="muted" style={{ textAlign: 'center' }}>
-            {signup ? <>Already have an account? <Link className="link" to={`/login${carry}`}>Log in</Link></> : <>New to Tally? <Link className="link" to={`/signup${carry}`}>Create an account</Link></>}
+            {signup ? <>Already have an account? <Link className="link" to={`/login${carry}`}>Log in</Link></> : <>New to Jellyfish? <Link className="link" to={`/signup${carry}`}>Create an account</Link></>}
           </div>
         </form>
       </div>

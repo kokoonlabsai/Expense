@@ -4,13 +4,13 @@ import { api } from '../lib/api';
 import { Avatar } from './ui';
 
 const digitsOf = (s) => s.replace(/\D/g, '');
-const toPick = (p) => (p.known ? { user_id: p.id, name: p.name, onTally: true } : { phone: p.phone, name: p.name, onTally: true });
+const toPick = (p) => (p.known ? { user_id: p.id, name: p.name, onJellyfish: true } : { phone: p.phone, name: p.name, onJellyfish: true });
 
 /**
  * Search people to add to a split. Calls onPick with one of:
- *   { user_id, name, onTally } someone you already share a group with
- *   { phone, name, onTally }   a Tally user found by their number (no onTally: a number to invite)
- *   { name }                   someone not on Tally — they'll get an invite link
+ *   { user_id, name, onJellyfish } someone you already share a group with
+ *   { phone, name, onJellyfish }   a Jellyfish user found by their number (no onJellyfish: a number to invite)
+ *   { name }                   someone not on Jellyfish — they'll get an invite link
  */
 export default function PeoplePicker({ onPick, exclude = [], autoFocus, placeholder = 'Search a name or phone number' }) {
   const [q, setQ] = useState('');
@@ -66,7 +66,7 @@ export default function PeoplePicker({ onPick, exclude = [], autoFocus, placehol
               <Avatar name={p.name} size="sm" />
               <span style={{ flex: 1, textAlign: 'left' }}>
                 <b>{p.name}</b>
-                <span className="muted" style={{ fontSize: 12, display: 'block' }}>{p.phone_hint} · on Tally</span>
+                <span className="muted" style={{ fontSize: 12, display: 'block' }}>{p.phone_hint} · on Jellyfish</span>
               </span>
               <UserPlus size={16} className="muted" />
             </button>
@@ -79,7 +79,7 @@ export default function PeoplePicker({ onPick, exclude = [], autoFocus, placehol
               <span className="avatar sm" style={{ background: 'var(--grad)' }}><Link2 size={14} /></span>
               <span style={{ flex: 1, textAlign: 'left' }}>
                 <b>Add “{term}”</b>
-                <span className="muted" style={{ fontSize: 12, display: 'block' }}>Not on Tally? You'll get an invite link to send them</span>
+                <span className="muted" style={{ fontSize: 12, display: 'block' }}>Not on Jellyfish? You'll get an invite link to send them</span>
               </span>
             </button>
           )}
@@ -88,7 +88,7 @@ export default function PeoplePicker({ onPick, exclude = [], autoFocus, placehol
             <form className="picker-row" style={{ cursor: 'default' }} onSubmit={(e) => { e.preventDefault(); if (inviteName.trim()) pick({ phone: term, name: inviteName.trim() }); }}>
               <span className="avatar sm" style={{ background: 'var(--grad)' }}><Link2 size={14} /></span>
               <span style={{ flex: 1, minWidth: 0 }}>
-                <span className="muted" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>No one on Tally with this number yet. What's their name?</span>
+                <span className="muted" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>No one on Jellyfish with this number yet. What's their name?</span>
                 <span className="row" style={{ gap: 6 }}>
                   <input className="input" style={{ height: 34 }} placeholder="Name" value={inviteName} onChange={(e) => setInviteName(e.target.value)} />
                   <button className="btn btn-sm btn-primary" disabled={!inviteName.trim()}>Add</button>
@@ -98,7 +98,7 @@ export default function PeoplePicker({ onPick, exclude = [], autoFocus, placehol
           )}
 
           {!loading && !isPhone && !shown.length && (
-            <div className="picker-note">Tip: type their full phone number to find friends already on Tally.</div>
+            <div className="picker-note">Tip: type their full phone number to find friends already on Jellyfish.</div>
           )}
         </div>
       )}

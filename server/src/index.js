@@ -69,7 +69,7 @@ app.use((err, req, res, next) => {
 
 const port = Number(process.env.PORT) || 4000;
 if (require.main === module) {
-  app.listen(port, () => console.log(`Tally API listening on http://localhost:${port}`));
+  app.listen(port, () => console.log(`Jellyfish API listening on http://localhost:${port}`));
 }
 
 module.exports = app;

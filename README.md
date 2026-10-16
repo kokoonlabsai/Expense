@@ -1,4 +1,4 @@
-# Tally
+# Jellyfish
 
 *Money, beautifully kept.* A personal expense tracker with phone-number accounts, an API your iPhone or Android automations can post to, a spending dashboard, filterable transactions, and Splitwise-style groups.
 
@@ -14,14 +14,14 @@
   - top merchants, money you've lent out, group balances, and plain-language insights
 - **Transactions**: search and filter by category (pick several), type, preset period, month, custom date range or amount range. You can sort, edit and delete, and export what you've filtered to CSV.
 - **Splits**:
-  - add people by searching. You can find people you already share a group with by name, and anyone on Tally by their full phone number. There's no browsable list of users.
-  - people on Tally see the group straight away, along with what they owe, and can add their own expenses
+  - add people by searching. You can find people you already share a group with by name, and anyone on Jellyfish by their full phone number. There's no browsable list of users.
+  - people on Jellyfish see the group straight away, along with what they owe, and can add their own expenses
   - anyone else gets an invite link. Opening it lets them sign up or log in, and they take over the spot you made for them, with its history. Each group also has a shareable join link.
   - split an expense equally, by exact amounts, by percentage or by shares
   - see each person's balance, with debts simplified to the fewest payments
   - settle up with confirmation. When someone records "I paid you", the receiver confirms it before balances change. There's also a one-tap reminder for people who owe you.
   - optionally copy your own share into your personal transactions
-- **Installable app (PWA)**: add Tally to your home screen on iPhone or Android, or install it on desktop. It opens full-screen, loads instantly, keeps you signed in offline, and has a long-press "Add expense" shortcut on the icon.
+- **Installable app (PWA)**: add Jellyfish to your home screen on iPhone or Android, or install it on desktop. It opens full-screen, loads instantly, keeps you signed in offline, and has a long-press "Add expense" shortcut on the icon.
 - **Push notifications**: turn them on under **Settings → App & notifications**. You're notified when:
   - someone adds you to a group
   - someone adds an expense you're part of
@@ -31,7 +31,7 @@
   - someone sends you a reminder
   - you go over a budget
 
-  On iPhone, notifications need iOS 16.4 or later, and Tally must be opened from the Home Screen.
+  On iPhone, notifications need iOS 16.4 or later, and Jellyfish must be opened from the Home Screen.
 - **Lending tracker**: add a person to a Lending transaction, then mark it as returned from the dashboard.
 - **Budgets and categories**: set an overall monthly budget and per-category budgets. Add custom categories with your own colour and icon.
 - **Settings**: change your currency (INR, USD, EUR, GBP, AED, SGD, AUD, CAD, JPY) or password, manage API keys, and delete your account.
@@ -85,7 +85,7 @@ The tables are created automatically on first start.
 | `TURSO_AUTH_TOKEN` | — | Turso auth token |
 | `TZ` | `UTC` on most hosts | Your time zone, e.g. `Asia/Kolkata`. Decides what "today" and "this month" mean for API entries without a date |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` | generated | Push notification keys. If unset, a pair is generated once and stored in the database, so you can leave these alone |
-| `VAPID_SUBJECT` | `mailto:notifications@tally.app` | Contact address sent to push services. Set it to `mailto:you@yourdomain.com` |
+| `VAPID_SUBJECT` | `mailto:notifications@jellyfish.app` | Contact address sent to push services. Set it to `mailto:you@yourdomain.com` |
 | `CORS_ORIGIN` | allow all | Comma-separated frontend URLs (only needed when the frontend is on another domain) |
 | `PORT` | `4000` (`8080` in Docker) | |
 | `DB_PATH` | `server/data/tally.db` | Local SQLite file when not using Turso |

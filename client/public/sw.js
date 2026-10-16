@@ -1,5 +1,5 @@
-/* Tally service worker: offline app shell + push notifications. */
-const CACHE = 'tally-v1';
+/* Jellyfish service worker: offline app shell + push notifications. */
+const CACHE = 'jellyfish-v2';
 const SHELL = ['/', '/manifest.webmanifest', '/icons/icon-192.png', '/icons/badge-96.png'];
 
 self.addEventListener('install', (event) => {
@@ -57,7 +57,7 @@ self.addEventListener('push', (event) => {
   } catch {
     data = { body: event.data && event.data.text() };
   }
-  const title = data.title || 'Tally';
+  const title = data.title || 'Jellyfish';
   event.waitUntil(
     Promise.all([
       self.registration.showNotification(title, {

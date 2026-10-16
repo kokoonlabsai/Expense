@@ -173,7 +173,7 @@ async function isContact(userId, otherId, q = db) {
 
 /**
  * Add someone to a group. Accepts one of:
- *  - { user_id }  a Tally user the requester already shares a group with (from people search)
+ *  - { user_id }  a Jellyfish user the requester already shares a group with (from people search)
  *  - { phone }    looked up among registered users; becomes a linked member if found
  *  - { name }     a placeholder person who gets a personal invite link to claim the spot
  */
@@ -340,7 +340,7 @@ router.post('/:id/members/:mid/invite', async (req, res) => {
   const { group } = await loadGroupForUser(req.params.id, req.user.id);
   const m = await db.get('SELECT * FROM group_members WHERE id = ? AND group_id = ?', req.params.mid, group.id);
   if (!m) throw new HttpError(404, 'Member not found');
-  if (m.user_id) throw new HttpError(400, `${m.name} is already on Tally and can see this group`);
+  if (m.user_id) throw new HttpError(400, `${m.name} is already on Jellyfish and can see this group`);
   let token = m.invite_token;
   if (!token) {
     token = newToken();
@@ -458,7 +458,7 @@ router.post('/:id/settlements', async (req, res) => {
   if (!byId[from] || !byId[to] || from === to) throw new HttpError(422, 'Pick two different group members');
   if (!amount || amount <= 0) throw new HttpError(422, 'Enter an amount');
   if (!date) throw new HttpError(422, 'Invalid date');
-  // The receiver confirms money they got, unless they're the one recording it or aren't on Tally.
+  // The receiver confirms money they got, unless they're the one recording it or aren't on Jellyfish.
   const receiver = byId[to];
   const status = receiver.user_id && receiver.user_id !== req.user.id ? 'pending' : 'confirmed';
   const info = await db.run(

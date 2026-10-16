@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tally-test-'));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jellyfish-test-'));
 process.env.DB_PATH = path.join(tmp, 'test.db');
 process.env.JWT_SECRET = 'test-secret';
 

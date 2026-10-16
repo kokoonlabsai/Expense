@@ -31,7 +31,7 @@ router.delete('/subscribe', requireAuth(), async (req, res) => {
 router.post('/test', requireAuth(), async (req, res) => {
   const sent = await sendTo([req.user.id], {
     title: 'Notifications are on 🎉',
-    body: "You'll hear from Tally when friends split or settle with you.",
+    body: "You'll hear from Jellyfish when friends split or settle with you.",
     url: '/settings',
     tag: 'test',
   });

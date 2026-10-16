@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { useApp } from '../lib/store';
 import { currentSubscription, disablePush, enablePush, pushSupported, useInstall } from '../lib/pwa';
 
-/** Settings card: install Tally as an app and turn notifications on for this device. */
+/** Settings card: install Jellyfish as an app and turn notifications on for this device. */
 export default function AppCard() {
   const { toast } = useApp();
   const { standalone, ios, canInstall, install } = useInstall();
@@ -48,7 +48,7 @@ export default function AppCard() {
         <span className="dot-ic" style={{ background: 'var(--ink)', color: '#fff', width: 38, height: 38, borderRadius: 12 }}><Bell size={18} /></span>
         <div>
           <h3 className="card-title" style={{ fontSize: 16 }}>App & notifications</h3>
-          <div className="card-sub">Get Tally on your home screen and hear when friends split or settle with you.</div>
+          <div className="card-sub">Get Jellyfish on your home screen and hear when friends split or settle with you.</div>
         </div>
       </div>
 
@@ -58,15 +58,15 @@ export default function AppCard() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <h4>{standalone ? 'Installed on this device' : 'Install the app'}</h4>
             {standalone ? (
-              <p style={{ marginBottom: 0 }}>You're using Tally as an app.</p>
+              <p style={{ marginBottom: 0 }}>You're using Jellyfish as an app.</p>
             ) : canInstall ? (
               <>
                 <p>Opens full-screen from your home screen, like any other app.</p>
-                <button className="btn btn-primary" onClick={install}><Download size={15} /> Install Tally</button>
+                <button className="btn btn-primary" onClick={install}><Download size={15} /> Install Jellyfish</button>
               </>
             ) : ios ? (
               <p style={{ marginBottom: 0 }}>
-                In Safari, tap <b>Share</b> <Share size={13} style={{ verticalAlign: -2 }} /> then <b>Add to Home Screen</b>. Open Tally from there.
+                In Safari, tap <b>Share</b> <Share size={13} style={{ verticalAlign: -2 }} /> then <b>Add to Home Screen</b>. Open Jellyfish from there.
               </p>
             ) : (
               <p style={{ marginBottom: 0 }}>Open your browser menu and choose <b>Install app</b> or <b>Add to Home screen</b>.</p>
@@ -81,11 +81,11 @@ export default function AppCard() {
             {!supported ? (
               <p style={{ marginBottom: 0 }}>
                 {ios && !standalone
-                  ? 'On iPhone, notifications work once Tally is on your Home Screen. Install it first (above), then come back here from the app.'
+                  ? 'On iPhone, notifications work once Jellyfish is on your Home Screen. Install it first (above), then come back here from the app.'
                   : "This browser doesn't support notifications."}
               </p>
             ) : permission === 'denied' ? (
-              <p style={{ marginBottom: 0 }}>Notifications are blocked for Tally. Allow them in your {ios ? 'iPhone Settings → Notifications → Tally' : 'browser’s site settings'}, then try again.</p>
+              <p style={{ marginBottom: 0 }}>Notifications are blocked for Jellyfish. Allow them in your {ios ? 'iPhone Settings → Notifications → Jellyfish' : 'browser’s site settings'}, then try again.</p>
             ) : subscribed ? (
               <>
                 <p>On this device you'll hear when someone adds you to a group, splits a bill with you, pays you, confirms your payment, or when you go over a budget.</p>

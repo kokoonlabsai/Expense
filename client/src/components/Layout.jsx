@@ -4,6 +4,7 @@ import { LayoutDashboard, ArrowLeftRight, Users, PiggyBank, Settings, Plus, LogO
 import { useApp } from '../lib/store';
 import TransactionModal from './TransactionModal';
 import { Avatar } from './ui';
+import { BrandMark } from './Logo';
 import { disablePush, syncPush } from '../lib/pwa';
 
 const NAV = [
@@ -13,16 +14,6 @@ const NAV = [
   { to: '/budgets', label: 'Budgets', icon: PiggyBank },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
-
-export function BrandMark({ size = 34 }) {
-  return (
-    <span className="brand-mark" style={{ width: size, height: size }}>
-      <svg width={size * 0.5} height={size * 0.5} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round">
-        <path d="M5 6h14M12 6v13" />
-      </svg>
-    </span>
-  );
-}
 
 export default function Layout() {
   const { user, logout, txModal, openTx, refresh } = useApp();
@@ -67,7 +58,7 @@ export default function Layout() {
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="brand"><BrandMark /><span className="brand-name">Tally</span></div>
+        <div className="brand"><BrandMark /><span className="brand-name">Jellyfish</span></div>
         <button className="btn btn-grad" style={{ margin: '0 0 14px', height: 44 }} onClick={() => openTx()}>
           <Plus size={18} /> Add expense <span className="kbd" style={{ color: 'rgba(255,255,255,.8)', borderColor: 'rgba(255,255,255,.4)', marginLeft: 4 }}>N</span>
         </button>
@@ -92,7 +83,7 @@ export default function Layout() {
 
       <main className="main">
         <div className="mobile-top">
-          <div className="row" style={{ gap: 8 }}><BrandMark size={30} /><span className="brand-name" style={{ fontSize: 24 }}>Tally</span></div>
+          <div className="row" style={{ gap: 8 }}><BrandMark size={30} /><span className="brand-name" style={{ fontSize: 24 }}>Jellyfish</span></div>
           <NavLink to="/settings"><Avatar name={user?.name} size="sm" /></NavLink>
         </div>
         <Suspense fallback={<div className="page" />}><Outlet /></Suspense>

@@ -61,13 +61,13 @@ export default function GroupDetail() {
   async function inviteGroup() {
     try {
       const { token } = await api(`/groups/${id}/invite`, { method: 'POST' });
-      await share({ title: data.group.name, text: `Join "${data.group.name}" on Tally to split expenses with me:`, url: inviteUrl(token) }, toast);
+      await share({ title: data.group.name, text: `Join "${data.group.name}" on Jellyfish to split expenses with me:`, url: inviteUrl(token) }, toast);
     } catch (err) { toast(err.message, 'error'); }
   }
   async function inviteMember(m) {
     try {
       const { token } = await api(`/groups/${id}/members/${m.id}/invite`, { method: 'POST' });
-      await share({ title: data.group.name, text: `Hey ${m.name}, join "${data.group.name}" on Tally to see what we've split:`, url: inviteUrl(token) }, toast);
+      await share({ title: data.group.name, text: `Hey ${m.name}, join "${data.group.name}" on Jellyfish to see what we've split:`, url: inviteUrl(token) }, toast);
     } catch (err) { toast(err.message, 'error'); }
   }
   async function remind(d) {
@@ -78,13 +78,13 @@ export default function GroupDetail() {
       return toast(err.message, 'error');
     }
     // They haven't turned on notifications: fall back to a message you can send yourself.
-    share({ title: data.group.name, text: `Hey ${byId[d.from]?.name}, friendly reminder: you owe me ${money(d.amount, currency)} for "${data.group.name}". Details on Tally:`, url: `${window.location.origin}/splits/${id}` }, toast);
+    share({ title: data.group.name, text: `Hey ${byId[d.from]?.name}, friendly reminder: you owe me ${money(d.amount, currency)} for "${data.group.name}". Details on Jellyfish:`, url: `${window.location.origin}/splits/${id}` }, toast);
   }
 
   const toConfirm = data.settlements.filter((s) => s.status === 'pending' && s.to_member === data.me);
   const sentBetween = (from, to) =>
     data.settlements.filter((s) => s.status === 'pending' && s.from_member === from && s.to_member === to).reduce((a, s) => a + s.amount, 0);
-  const notOnTally = data.members.filter((m) => !m.registered);
+  const notOnJellyfish = data.members.filter((m) => !m.registered);
 
   return (
     <div className="page">
@@ -196,9 +196,9 @@ export default function GroupDetail() {
               <h3 className="card-title">Members</h3>
               <button className="btn btn-sm" onClick={() => setModal('member')}><UserPlus size={14} /> Add</button>
             </div>
-            {notOnTally.length > 0 && (
+            {notOnJellyfish.length > 0 && (
               <div className="insight info" style={{ marginBottom: 8, fontSize: 12.5 }}>
-                Send {notOnTally.length === 1 ? notOnTally[0].name : `${notOnTally.length} people`} an invite link so they can see what they owe and settle up.
+                Send {notOnJellyfish.length === 1 ? notOnJellyfish[0].name : `${notOnJellyfish.length} people`} an invite link so they can see what they owe and settle up.
               </div>
             )}
             {data.members.map((m) => (
@@ -206,7 +206,7 @@ export default function GroupDetail() {
                 <Avatar name={m.name} size="sm" />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600 }}>{m.is_me ? `${m.name} (you)` : m.name}</div>
-                  <div className="muted" style={{ fontSize: 12 }}>{m.registered ? 'On Tally' : 'Not on Tally yet'}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>{m.registered ? 'On Jellyfish' : 'Not on Jellyfish yet'}</div>
                 </div>
                 {!m.registered && <button className="btn btn-sm" onClick={() => inviteMember(m)}><Share2 size={13} /> Invite</button>}
                 <span className={`num ${m.balance > 0 ? 'pos' : m.balance < 0 ? 'neg' : 'muted'}`} style={{ fontWeight: 700, fontSize: 13.5 }}>
@@ -432,14 +432,14 @@ function MemberModal({ data, onClose, onChanged }) {
           <div className="notice">
             <Avatar name={added.name} />
             <div style={{ flex: 1 }}>
-              <b>{added.name} isn't on Tally yet</b>
+              <b>{added.name} isn't on Jellyfish yet</b>
               <div className="muted" style={{ fontSize: 13 }}>Send them this link. They'll create an account (or log in) and land straight in "{data.group.name}".</div>
             </div>
           </div>
           <div className="code" style={{ whiteSpace: 'normal', wordBreak: 'break-all', fontSize: 12 }}>{url}</div>
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button className="btn" onClick={onClose}>Later</button>
-            <button className="btn btn-primary" onClick={() => share({ title: data.group.name, text: `Hey ${added.name}, join "${data.group.name}" on Tally to see what we've split:`, url }, toast)}>
+            <button className="btn btn-primary" onClick={() => share({ title: data.group.name, text: `Hey ${added.name}, join "${data.group.name}" on Jellyfish to see what we've split:`, url }, toast)}>
               <Share2 size={15} /> Share link
             </button>
           </div>
@@ -453,7 +453,7 @@ function MemberModal({ data, onClose, onChanged }) {
       <div className="stack" style={{ opacity: busy ? 0.6 : 1 }}>
         <PeoplePicker autoFocus onPick={add} exclude={data.members.map((m) => m.user_id).filter(Boolean)} />
         <div className="muted" style={{ fontSize: 12.5 }}>
-          Friends on Tally see the group instantly. Anyone else gets an invite link to join.
+          Friends on Jellyfish see the group instantly. Anyone else gets an invite link to join.
         </div>
       </div>
     </Modal>

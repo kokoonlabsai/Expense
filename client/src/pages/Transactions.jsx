@@ -112,7 +112,7 @@ export default function Transactions() {
           <h1 className="page-title">All <em>transactions</em></h1>
         </div>
         <div className="row">
-          <button className="btn" onClick={() => download('/transactions/export.csv', query, 'tally-transactions.csv').catch((e) => toast(e.message, 'error'))}>
+          <button className="btn" onClick={() => download('/transactions/export.csv', query, 'jellyfish-transactions.csv').catch((e) => toast(e.message, 'error'))}>
             <Download size={16} /> <span className="hide-sm">Export CSV</span>
           </button>
           <button className="btn btn-primary" onClick={() => openTx()}><Plus size={16} /> Add</button>

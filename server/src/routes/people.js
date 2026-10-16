@@ -1,7 +1,7 @@
 /**
  * People search for adding someone to a split.
  * Privacy: you only find people you already share a group with (by name or number),
- * plus anyone on Tally whose full phone number you type — never a browsable user list.
+ * plus anyone on Jellyfish whose full phone number you type — never a browsable user list.
  */
 const express = require('express');
 const { db } = require('../db');
@@ -27,7 +27,7 @@ router.get('/', async (req, res) => {
     me, me, `%${q}%`, ...(digits.length >= 3 ? [`%${digits}%`] : [])
   );
 
-  // A full number (with or without the country code) finds anyone on Tally.
+  // A full number (with or without the country code) finds anyone on Jellyfish.
   let byPhone = [];
   if (digits.length >= 10) {
     byPhone = await db.all('SELECT id, name, phone FROM users WHERE id != ? AND phone LIKE ? LIMIT 3', me, `%${digits.slice(-10)}`);

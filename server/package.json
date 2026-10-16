@@ -1,8 +1,8 @@
 {
-  "name": "tally-server",
+  "name": "jellyfish-server",
   "version": "1.0.0",
   "private": true,
-  "description": "Tally expense tracker API",
+  "description": "Jellyfish expense tracker API",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

@@ -130,7 +130,7 @@ function CreateGroup({ onClose }) {
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <b>{m.name}</b>
                   <span className="muted" style={{ fontSize: 12, display: 'block' }}>
-                    {m.onTally ? 'On Tally · sees the group right away' : m.phone ? 'Joins automatically when they sign up with this number' : "You'll get an invite link to send them"}
+                    {m.onJellyfish ? 'On Jellyfish · sees the group right away' : m.phone ? 'Joins automatically when they sign up with this number' : "You'll get an invite link to send them"}
                   </span>
                 </span>
                 <button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={() => setMembers((ms) => ms.filter((x) => x.key !== m.key))} aria-label="Remove"><Trash2 size={14} /></button>
